@@ -4,6 +4,8 @@ use bytes::{Bytes, Buf};
 use std::fs;
 use std::io::Read;
 use std::ptr::null;
+use crate::class_file::class_structures::{ClassFile, ConstantPoolEntry, ElementInfo};
+use crate::utils::buffer_extras::read_u16_array;
 
 pub fn read(class_file_name: String) -> ClassFile {
     let contents = fs::read(class_file_name)
@@ -45,12 +47,4 @@ fn read_constant_pool_entry(mut buf: &Bytes) -> Box<ConstantPoolEntry> {
         _ => panic!(format!("Unexpected tag {}!", tag))
     };
     Box::new(ConstantPoolEntry { tag, info })
-}
-
-fn read_elements(mut buf: &Bytes) -> Vec<ElementInfo> {
-    let count = buf.get_u16();
-}
-
-fn read_element(mut buf: &Bytes) -> ElementInfo {
-    let access_flags
 }
