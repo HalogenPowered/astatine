@@ -1,50 +1,46 @@
 use crate::class_structures::*;
 use crate::conversions::{read_u16_array, u16_to_u8_array};
 use bytes::{Bytes, Buf};
-use std::fs;
+use std::{fs, mem};
 use std::io::Read;
 use std::ptr::null;
-use crate::class_file::class_structures::{ClassFile, ConstantPoolEntry, ElementInfo};
+use crate::class_file::attributes::Attribute;
+use crate::class_file::class_structures::*;
+use crate::types::constant_pool::{ConstantPool, PoolConstant, read_constant_pool};
+use crate::types::field::Field;
 use crate::utils::buffer_extras::read_u16_array;
 
-pub fn read(class_file_name: String) -> ClassFile {
+const MAGIC_CLASS_FILE_VERSION: u32 = 0xCAFEBABE;
+
+pub fn read_class_file(class_file_name: &str) -> ClassFile {
     let contents = fs::read(class_file_name)
-        .expect(&*format!("Class file name {} could not be read!", class_file_name));
+        .expect("Class file name" + class_file_name + "could not be read!");
     let mut buf = Bytes::from(contents);
     let magic = buf.get_u32();
+    if magic != MAGIC_CLASS_FILE_VERSION {
+        panic!("Invalid class file {}! Expected magic header {}, got {}!", class_file_name, MAGIC_CLASS_FILE_VERSION, magic);
+    }
     let minor_version = buf.get_u16();
     let major_version = buf.get_u16();
-    let constant_pool = read_constant_pool(buf);
+    let constant_pool = read_constant_pool(&mut buf);
     let access_flags = buf.get_u16();
     let this_class = buf.get_u16();
     let super_class = buf.get_u16();
-    let interfaces = read_u16_array(&buf);
-
+    let interfaces = read_u16_array(&mut buf);
 }
 
-fn read_constant_pool(mut buf: Bytes) -> Vec<ConstantPoolEntry> {
+fn read_field(pool: &ConstantPool, buf: &mut Bytes) -> Field {
+    let access_flags = buf.get_u16();
+    let name_index = buf.get_u16();
+    let descriptor_index = buf.get_u16();
+}
+
+fn read_attributes(buf: &mut Bytes) -> Vec<Attribute> {
     let count = buf.get_u16();
-    let mut pool = Vec::with_capacity(count as usize);
+    let mut attributes = Vec::with_capacity(count);
     for _ in 0..count {
-        pool.push(**read_constant_pool_entry(&buf))
+        attributes.push(Attribute::parse())
     }
-    pool
 }
 
-fn read_constant_pool_entry(mut buf: &Bytes) -> Box<ConstantPoolEntry> {
-    let tag = buf.get_u8();
-    let info: dyn ConstantPoolInfo = match tag {
-        UTF8_TAG => Utf8ConstantInfo::read_from(UTF8_TAG, buf),
-        INTEGER_TAG | FLOAT_TAG => SinglePrimitiveConstantInfo::read_from(tag, buf),
-        LONG_TAG | DOUBLE_TAG => DoublePrimitiveConstantInfo::read_from(tag, buf),
-        CLASS_TAG | MODULE_TAG | PACKAGE_TAG => StructureConstantInfo::read_from(tag, buf),
-        STRING_TAG => StringConstantInfo::read_from(tag, buf),
-        FIELD_REF_TAG | METHOD_REF_TAG | INTERFACE_METHOD_REF_TAG => ElementRefConstantInfo::read_from(tag, buf),
-        NAME_AND_TYPE_TAG => NameAndTypeConstantInfo::read_from(tag, buf),
-        METHOD_HANDLE_TAG => MethodHandleConstantInfo::read_from(tag, buf),
-        METHOD_TYPE_TAG => MethodTypeConstantInfo::read_from(tag, buf),
-        DYNAMIC_TAG | INVOKE_DYNAMIC_TAG => DynamicConstantInfo::read_from(tag, buf),
-        _ => panic!(format!("Unexpected tag {}!", tag))
-    };
-    Box::new(ConstantPoolEntry { tag, info })
-}
+fn read_attribute()

@@ -6,7 +6,7 @@ pub struct Method {
     pub signature: str,
     pub access_flags: u16,
     pub parameters: Vec<MethodParameter>,
-    pub code: Vec<u8>, // TODO
+    pub code: Vec<u8>
 }
 
 impl Method {
@@ -44,14 +44,20 @@ pub struct MethodParameter {
 
 impl MethodParameter {
     pub fn is_final(&self) -> bool {
-        self.access_flags & 0x0010 != 0
+        self.access_flags & ACC_FINAL != 0
     }
 
     pub fn is_synthetic(&self) -> bool {
-        self.access_flags & 0x1000 != 0
+        self.access_flags & ACC_SYNTHETIC != 0
     }
 
     pub fn is_mandated(&self) -> bool {
-        self.access_flags & 0x8000 != 0
+        self.access_flags & ACC_MANDATED != 0
+    }
+}
+
+impl Accessible for MethodParameter {
+    fn flags(&self) -> u16 {
+        self.access_flags
     }
 }

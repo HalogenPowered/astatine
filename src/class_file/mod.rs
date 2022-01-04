@@ -8,3 +8,4 @@ pub mod stack_map_frames;
 pub mod method;
 pub mod module;
 pub mod record;
+pub mod vm_constants;

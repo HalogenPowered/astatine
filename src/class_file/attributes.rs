@@ -1,9 +1,9 @@
 use bytes::{Buf, Bytes};
 
-use crate::class_file::annotations::{Annotation, ElementValue, ParameterAnnotation, TypeAnnotation, TypeAnnotationTarget};
+use crate::class_file::annotations::*;
 use crate::class_file::exceptions::ExceptionTable;
 use crate::class_file::method::{BootstrapMethod, MethodParameter};
-use crate::class_file::module::{Module, ModuleExport, ModuleOpening, ModuleRequirement, ProvidedModule};
+use crate::class_file::module::*;
 use crate::class_file::record::RecordComponent;
 use crate::class_file::stack_map_frames::StackMapFrame;
 
@@ -11,6 +11,15 @@ pub struct Attribute {
     pub name_index: u16,
     pub length: u32,
     pub data: AttributeData
+}
+
+impl Attribute {
+    pub fn parse(buf: &mut Bytes) -> Self {
+        let name_index = buf.get_u16();
+        let length = buf.get_u32();
+    }
+
+
 }
 
 pub enum AttributeData {
@@ -24,7 +33,7 @@ pub enum AttributeData {
     },
     StackMapTable { entries: Vec<StackMapFrame> },
     Exceptions { index_table: Vec<u16> },
-    InnerClasses { classes: Vec<InnerClass> },
+    InnerClasses { classes: Vec<UnresolvedInnerClass> },
     EnclosingMethod { class_index: u16, method_index: u16 },
     Synthetic,
     Signature { index: u16 },
@@ -61,7 +70,7 @@ pub enum AttributeData {
     PermittedSubClasses { classes: Vec<u16> }
 }
 
-pub struct InnerClass {
+pub struct UnresolvedInnerClass {
     pub info_index: u16,
     pub outer_info_index: u16,
     pub name_index: u16,

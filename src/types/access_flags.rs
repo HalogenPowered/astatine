@@ -24,6 +24,9 @@ pub const ACC_INTERFACE: u16 = 0x0200;
 pub const ACC_ANNOTATION: u16 = 0x2000;
 pub const ACC_MODULE: u16 = 0x8000;
 
+// Method parameter specific
+pub const ACC_MANDATED: u16 = 0x8000;
+
 pub trait Accessible {
     fn flags(&self) -> u16;
 
