@@ -1,18 +1,48 @@
 use bytes::{Buf, Bytes};
-use crate::types::class::Class;
-use crate::types::method_handle::MethodHandle;
 
 pub struct ConstantPool {
-    entries: Vec<PoolConstant>
+    tags: Vec<u8>,
+    constants: Vec<PoolConstant>
 }
 
 impl ConstantPool {
+    pub fn parse(buf: &mut Bytes) -> Self {
+        let count = buf.get_u16();
+        let mut tags = Vec::with_capacity(count as usize);
+        let mut constants = Vec::with_capacity(count as usize);
+        for _ in 0..count {
+            let tag = buf.get_u8();
+            tags.push(tag);
+            constants.push(PoolConstant::parse(tag, buf));
+        }
+        // No funny business on my watch!
+        assert_eq!(tags.len(), constants.len(), "Tags and constants size mismatch!");
+        ConstantPool { tags, constants }
+    }
+
+    pub fn len(&self) -> usize {
+        self.tags.len()
+    }
+
+    pub fn has(&self, index: usize) -> bool {
+        index >= 0 && index < self.tags.len()
+    }
+
+    pub fn get_tag(&self, index: usize) -> Option<&u8> {
+        self.tags.get(index)
+    }
+
     pub fn get(&self, index: usize) -> Option<&PoolConstant> {
-        self.entries.get(index)
+        self.constants.get(index)
     }
 
     pub fn get_utf8(&self, index: usize) -> Option<&str> {
-        match self.entries.get(index) {
+        self.get_string(index).map(|value| value.as_str())
+    }
+
+    // Same as get_utf8, but returns the underlying String object, rather than a splice
+    pub fn get_string(&self, index: usize) -> Option<&String> {
+        match self.constants.get(index) {
             Some(PoolConstant::Utf8(value)) => Some(value),
             _ => None
         }
@@ -26,71 +56,61 @@ impl ConstantPool {
     }
 
     pub fn get_float(&self, index: usize) -> Option<&f32> {
-        match self.entries.get(index) {
+        match self.constants.get(index) {
             Some(PoolConstant::Float(value)) => Some(value),
             _ => None
         }
     }
 
     pub fn get_long(&self, index: usize) -> Option<&i64> {
-        match self.entries.get(index) {
+        match self.constants.get(index) {
             Some(PoolConstant::Long(value)) => Some(value),
             _ => None
         }
     }
 
     pub fn get_double(&self, index: usize) -> Option<&f64> {
-        match self.entries.get(index) {
+        match self.constants.get(index) {
             Some(PoolConstant::Double(value)) => Some(value),
             _ => None
         }
     }
 
     pub fn resolve_class_name(&self, index: usize) -> Option<&str> {
-        match self.entries.get(index) {
-            Some(PoolConstant::Class(name_index)) => self.get_utf8(name_index as usize),
+        match self.constants.get(index) {
+            Some(PoolConstant::Class { name_index }) => self.get_utf8(*name_index as usize),
             _ => None
         }
     }
 
     pub fn resolve_string(&self, index: usize) -> Option<&str> {
-        match self.entries.get(index) {
-            Some(PoolConstant::String(value_index)) => self.get_utf8(value_index as usize),
+        match self.constants.get(index) {
+            Some(PoolConstant::String { value_index }) => self.get_utf8(*value_index as usize),
             _ => None
         }
     }
 }
 
-pub fn read_constant_pool(buf: &mut Bytes) -> Vec<PoolConstant> {
-    let count = buf.get_u16();
-    let mut pool = Vec::with_capacity(count as usize);
-    for _ in 0..count {
-        pool.entries.push(PoolConstant::parse(buf));
-    }
-    pool
-}
-
-const UTF8_TAG: u8 = 1;
-const INT_TAG: u8 = 3;
-const FLOAT_TAG: u8 = 4;
-const LONG_TAG: u8 = 5;
-const DOUBLE_TAG: u8 = 6;
-const CLASS_TAG: u8 = 7;
-const STRING_TAG: u8 = 8;
-const FIELD_REF_TAG: u8 = 9;
-const METHOD_REF_TAG: u8 = 10;
-const INTERFACE_METHOD_REF_TAG: u8 = 11;
-const NAME_AND_TYPE_TAG: u8 = 12;
-const METHOD_HANDLE_TAG: u8 = 15;
-const METHOD_TYPE_TAG: u8 = 16;
-const DYNAMIC_TAG: u8 = 17;
-const INVOKE_DYNAMIC_TAG: u8 = 18;
-const MODULE_TAG: u8 = 19;
-const PACKAGE_TAG: u8 = 20;
+pub const UTF8_TAG: u8 = 1;
+pub const INT_TAG: u8 = 3;
+pub const FLOAT_TAG: u8 = 4;
+pub const LONG_TAG: u8 = 5;
+pub const DOUBLE_TAG: u8 = 6;
+pub const CLASS_TAG: u8 = 7;
+pub const STRING_TAG: u8 = 8;
+pub const FIELD_REF_TAG: u8 = 9;
+pub const METHOD_REF_TAG: u8 = 10;
+pub const INTERFACE_METHOD_REF_TAG: u8 = 11;
+pub const NAME_AND_TYPE_TAG: u8 = 12;
+pub const METHOD_HANDLE_TAG: u8 = 15;
+pub const METHOD_TYPE_TAG: u8 = 16;
+pub const DYNAMIC_TAG: u8 = 17;
+pub const INVOKE_DYNAMIC_TAG: u8 = 18;
+pub const MODULE_TAG: u8 = 19;
+pub const PACKAGE_TAG: u8 = 20;
 
 impl PoolConstant {
-    fn parse(buf: &mut Bytes) -> Self {
-        let tag = buf.get_u8();
+    fn parse(tag: u8, buf: &mut Bytes) -> Self {
         match tag {
             UTF8_TAG => PoolConstant::Utf8(PoolConstant::parse_utf8(buf)),
             INT_TAG => PoolConstant::Integer(buf.get_i32()),

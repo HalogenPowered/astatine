@@ -7,25 +7,35 @@ pub const ACC_FINAL: u16 = 0x0010;
 pub const ACC_ABSTRACT: u16 = 0x0400;
 pub const ACC_SYNTHETIC: u16 = 0x1000;
 
-// Field specific
-pub const ACC_VOLATILE: u16 = 0x0040;
-pub const ACC_TRANSIENT: u16 = 0x0080;
+// Classes and fields
 pub const ACC_ENUM: u16 = 0x4000;
 
-// Method specific
+// Fields
+pub const ACC_VOLATILE: u16 = 0x0040;
+pub const ACC_TRANSIENT: u16 = 0x0080;
+
+// Methods
 pub const ACC_SYNCHRONIZED: u16 = 0x0020;
 pub const ACC_BRIDGE: u16 = 0x0040;
 pub const ACC_VARARGS: u16 = 0x0080;
 pub const ACC_NATIVE: u16 = 0x0100;
 pub const ACC_STRICT: u16 = 0x0800;
 
-// Class specific
+// Classes
+pub const ACC_SUPER: u16 = 0x0020;
 pub const ACC_INTERFACE: u16 = 0x0200;
 pub const ACC_ANNOTATION: u16 = 0x2000;
 pub const ACC_MODULE: u16 = 0x8000;
 
-// Method parameter specific
+// Method parameters and modules
 pub const ACC_MANDATED: u16 = 0x8000;
+
+// Modules
+pub const ACC_OPEN: u16 = 0x0020;
+
+pub const ALL_CLASS_MODIFIERS: u16 = ACC_PUBLIC | ACC_FINAL | ACC_SUPER | ACC_INTERFACE |
+    ACC_ABSTRACT | ACC_SYNTHETIC | ACC_ANNOTATION | ACC_ENUM;
+pub const ALL_CLASS_MODIFIERS_J9: u16 = ALL_CLASS_MODIFIERS | ACC_MODULE;
 
 pub trait Accessible {
     fn flags(&self) -> u16;
