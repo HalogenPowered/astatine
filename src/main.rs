@@ -8,6 +8,7 @@ pub mod utils;
 fn main() {
     let mut buffer = String::new();
     io::stdin().read_line(&mut buffer).expect("Expected input!");
-    println!("{}", buffer);
-    parse_class(&buffer);
+    let input = buffer.trim_end();
+    println!("{}", input);
+    parse_class(&input);
 }

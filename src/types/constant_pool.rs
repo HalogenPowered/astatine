@@ -25,7 +25,7 @@ impl ConstantPool {
     }
 
     pub fn has(&self, index: usize) -> bool {
-        index >= 0 && index < self.tags.len()
+        index < self.tags.len()
     }
 
     pub fn get_tag(&self, index: usize) -> Option<&u8> {
@@ -76,16 +76,9 @@ impl ConstantPool {
         }
     }
 
-    pub fn resolve_class_name(&self, index: usize) -> Option<&str> {
+    pub fn resolve_class_name(&self, index: usize) -> Option<&String> {
         match self.constants.get(index) {
-            Some(PoolConstant::Class { name_index }) => self.get_utf8(*name_index as usize),
-            _ => None
-        }
-    }
-
-    pub fn resolve_string(&self, index: usize) -> Option<&str> {
-        match self.constants.get(index) {
-            Some(PoolConstant::String { value_index }) => self.get_utf8(*value_index as usize),
+            Some(PoolConstant::Class { name_index }) => self.get_string(*name_index as usize),
             _ => None
         }
     }
@@ -108,6 +101,26 @@ pub const DYNAMIC_TAG: u8 = 17;
 pub const INVOKE_DYNAMIC_TAG: u8 = 18;
 pub const MODULE_TAG: u8 = 19;
 pub const PACKAGE_TAG: u8 = 20;
+
+pub enum PoolConstant {
+    Utf8(String),
+    Integer(i32),
+    Float(f32),
+    Long(i64),
+    Double(f64),
+    Class { name_index: u16 },
+    String { value_index: u16 },
+    FieldRef { class_index: u16, name_and_type_index: u16 },
+    MethodRef { class_index: u16, name_and_type_index: u16 },
+    InterfaceMethodRef { class_index: u16, name_and_type_index: u16 },
+    NameAndType { name_index: u16, descriptor_index: u16 },
+    MethodHandle { reference_kind: u8, reference_index: u16 },
+    MethodType { descriptor_index: u16 },
+    Dynamic { bootstrap_method_attr_index: u16, name_and_type_index: u16 },
+    InvokeDynamic { bootstrap_method_attr_index: u16, name_and_type_index: u16 },
+    Module { name_index: u16 },
+    Package { name_index: u16 }
+}
 
 impl PoolConstant {
     fn parse(tag: u8, buf: &mut Bytes) -> Self {
@@ -138,24 +151,4 @@ impl PoolConstant {
         let bytes = buf.copy_to_bytes(length as usize).to_vec();
         String::from_utf8(bytes).expect("Failed to convert bytes to string!")
     }
-}
-
-pub enum PoolConstant {
-    Utf8(String),
-    Integer(i32),
-    Float(f32),
-    Long(i64),
-    Double(f64),
-    Class { name_index: u16 },
-    String { value_index: u16 },
-    FieldRef { class_index: u16, name_and_type_index: u16 },
-    MethodRef { class_index: u16, name_and_type_index: u16 },
-    InterfaceMethodRef { class_index: u16, name_and_type_index: u16 },
-    NameAndType { name_index: u16, descriptor_index: u16 },
-    MethodHandle { reference_kind: u8, reference_index: u16 },
-    MethodType { descriptor_index: u16 },
-    Dynamic { bootstrap_method_attr_index: u16, name_and_type_index: u16 },
-    InvokeDynamic { bootstrap_method_attr_index: u16, name_and_type_index: u16 },
-    Module { name_index: u16 },
-    Package { name_index: u16 }
 }

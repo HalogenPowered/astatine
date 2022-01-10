@@ -7,12 +7,13 @@ use crate::types::access_flags::ACC_STATIC;
 use crate::types::constant_pool::{CLASS_TAG, ConstantPool, DOUBLE_TAG, FLOAT_TAG, INT_TAG, LONG_TAG};
 use crate::types::field::{ConstantValue, Field};
 
-pub fn parse_field<'a>(class_file_name: &str, major_version: u16, pool: &'a ConstantPool, buf: &mut Bytes) -> Field<'a> {
+pub fn parse_field(class_file_name: &str, major_version: u16, pool: &ConstantPool, buf: &mut Bytes) -> Field {
     let access_flags = buf.get_u16();
     let name_index = buf.get_u16();
-    let name = pool.get_utf8(name_index as usize)
+    let name = pool.get_string(name_index as usize)
         .expect(&format!("Invalid field in class file {}! Expected name at index {} in \
-            constant pool!", class_file_name, name_index));
+            constant pool!", class_file_name, name_index))
+        .clone();
 
     let descriptor_index = buf.get_u16();
     let descriptor_string = pool.get_utf8(descriptor_index as usize)
@@ -23,32 +24,30 @@ pub fn parse_field<'a>(class_file_name: &str, major_version: u16, pool: &'a Cons
 
     let attributes_count = buf.get_u16();
     let is_static = access_flags & ACC_STATIC != 0;
-    let mut constant_value = None;
-    let mut generic_signature = None;
-    parse_attributes(
+    let (constant_value, generic_signature) = parse_attributes(
         class_file_name,
         major_version,
         attributes_count,
         is_static,
+        &descriptor,
         pool,
-        buf,
-        &mut constant_value,
-        &mut generic_signature
+        buf
     );
     Field { name, descriptor, generic_signature, access_flags, constant_value }
 }
 
-fn parse_attributes<'a>(
+fn parse_attributes(
     class_file_name: &str,
     major_version: u16,
     mut attributes_count: u16,
     is_static: bool,
-    pool: &'a ConstantPool,
-    buf: &mut Bytes,
-    constant_value: &mut Option<ConstantValue>,
-    generic_signature: &mut Option<&'a str>
-) {
-    let mut generic_signature_index = 0;
+    descriptor: &FieldType,
+    pool: &ConstantPool,
+    buf: &mut Bytes
+) -> (Option<ConstantValue>, Option<String>) {
+    let mut constant_value = None;
+    let mut generic_signature = None;
+
     while attributes_count > 0 {
         assert!(buf.len() >= 6, "Truncated field attributes for field in class file {}!", class_file_name);
         let attribute_name_index = buf.get_u16();
@@ -64,7 +63,7 @@ fn parse_attributes<'a>(
             assert_eq!(attribute_length, 2, "Invalid ConstantValue attribute! Expected length of 2, \
                     was {} for class file {}!", attribute_length, class_file_name);
             let constant_value_index = buf.get_u16();
-            *constant_value = parse_constant_value(pool, constant_value_index, generic_signature_index);
+            constant_value = parse_constant_value(class_file_name, pool, constant_value_index, descriptor);
         } else if attribute_name == TAG_SYNTHETIC {
             assert_eq!(attribute_length, 0, "Invalid synthetic attribute length {} for field in class \
                 file {}!", attribute_length, class_file_name);
@@ -73,14 +72,9 @@ fn parse_attributes<'a>(
                 file {}!", attribute_length, class_file_name);
         } else if major_version >= JAVA_VERSION_1_5 {
             if attribute_name == TAG_SIGNATURE {
-                generic_signature_index = parse_generic_signature(
-                    class_file_name,
-                    pool,
-                    attribute_length,
-                    buf,
-                    "field",
-                    generic_signature
-                );
+                assert!(generic_signature.is_none(), "Duplicate generic signature attribute found \
+                    for field in class file {}!", class_file_name);
+                generic_signature = parse_generic_signature(class_file_name, pool, attribute_length, buf, "field");
             }
         } else {
             // Skip past any attribute that we don't recognise
@@ -88,20 +82,18 @@ fn parse_attributes<'a>(
         }
         attributes_count -= 1;
     };
+    (constant_value, generic_signature)
 }
 
 const STRING_DESCRIPTOR: &str = "Ljava/lang/String;";
 
-fn parse_constant_value(pool: &ConstantPool, index: u16, signature_index: u16) -> Option<ConstantValue> {
+fn parse_constant_value(class_file_name: &str, pool: &ConstantPool, index: u16, descriptor: &FieldType) -> Option<ConstantValue> {
     assert!(index > 0 && index < (pool.len() as u16), "Bad constant value! Failed to find value at index {}!", index);
 
     let value_type = pool.get_tag(index as usize)
-        .expect("Expected tag for constant value index!");
-    let signature_value = pool.get_utf8(signature_index as usize)
-        .expect("No signature value found for signature index!");
-    let signature = FieldType::parse(signature_value)
-        .expect("Could not parse signature for constant value!");
-    match signature.base {
+        .expect(&format!("Invalid constant value for field in class file {}! Expected tag for \
+            constant value index {}!", class_file_name, index));
+    match &descriptor.base {
         SingleType::Long => {
             assert_eq!(value_type, &LONG_TAG, "Inconsistent constant value type! Expected long!");
             pool.get_long(index as usize).map(|value| ConstantValue::Long(*value))

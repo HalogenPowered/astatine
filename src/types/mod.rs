@@ -6,3 +6,4 @@ pub mod constant_pool;
 pub mod code;
 pub mod module;
 pub mod record;
+pub mod utils;

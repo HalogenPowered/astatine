@@ -3,11 +3,12 @@ use java_desc::MethodType;
 use crate::types::access_flags::*;
 use crate::types::code::CodeBlock;
 use crate::types::constant_pool::ConstantPool;
+use crate::types::utils::{Generic, Nameable};
 
-pub struct Method<'a> {
-    pub name: &'a str,
+pub struct Method {
+    pub name: String,
     pub descriptor: MethodType,
-    pub generic_signature: Option<&'a str>,
+    pub generic_signature: Option<String>,
     pub access_flags: u16,
     pub parameters: Vec<MethodParameter>,
     pub code: Option<CodeBlock>,
@@ -19,11 +20,7 @@ pub struct Method<'a> {
 pub const METHOD_IS_CONSTRUCTOR: u8 = 0x01;
 pub const METHOD_IS_STATIC_INITIALIZER: u8 = 0x02;
 
-impl Method<'_> {
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-
+impl Method {
     pub fn is_constructor(&self) -> bool {
         self.other_flags & METHOD_IS_CONSTRUCTOR != 0
     }
@@ -53,14 +50,26 @@ impl Method<'_> {
     }
 }
 
-impl Accessible for Method<'_> {
+impl Accessible for Method {
     fn flags(&self) -> u16 {
         self.access_flags
     }
 }
 
+impl Nameable for Method {
+    fn name(&self) -> &str {
+        &self.name
+    }
+}
+
+impl Generic for Method {
+    fn generic_signature(&self) -> Option<&str> {
+        self.generic_signature.as_ref().map(|value| value.as_str())
+    }
+}
+
 pub struct MethodParameter {
-    pub name: *const String,
+    name: String,
     pub access_flags: u16
 }
 
@@ -69,7 +78,8 @@ impl MethodParameter {
         let name_index = buf.get_u16();
         let name = pool.get_string(name_index as usize)
             .expect(&format!("Invalid method parameter for method in class file {}! Expected name at \
-                index {}!", class_file_name, name_index));
+                index {}!", class_file_name, name_index))
+            .clone();
         let access_flags = buf.get_u16();
         MethodParameter { name, access_flags }
     }
@@ -90,5 +100,11 @@ impl MethodParameter {
 impl Accessible for MethodParameter {
     fn flags(&self) -> u16 {
         self.access_flags
+    }
+}
+
+impl Nameable for MethodParameter {
+    fn name(&self) -> &str {
+        &self.name
     }
 }

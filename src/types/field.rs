@@ -1,15 +1,16 @@
 use java_desc::FieldType;
 use crate::types::access_flags::*;
+use crate::types::utils::{Generic, Nameable};
 
-pub struct Field<'a> {
-    pub name: &'a str,
+pub struct Field {
+    pub name: String,
     pub descriptor: FieldType,
-    pub generic_signature: Option<&'a str>,
+    pub generic_signature: Option<String>,
     pub access_flags: u16,
     pub constant_value: Option<ConstantValue>
 }
 
-impl Field<'_> {
+impl Field {
     pub fn is_volatile(&self) -> bool {
         self.access_flags & ACC_VOLATILE != 0
     }
@@ -23,9 +24,21 @@ impl Field<'_> {
     }
 }
 
-impl Accessible for Field<'_> {
+impl Accessible for Field {
     fn flags(&self) -> u16 {
         self.access_flags
+    }
+}
+
+impl Nameable for Field {
+    fn name(&self) -> &str {
+        &self.name
+    }
+}
+
+impl Generic for Field {
+    fn generic_signature(&self) -> Option<&str> {
+        self.generic_signature.as_ref().map(|value| value.as_str())
     }
 }
 

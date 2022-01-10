@@ -11,7 +11,7 @@ use crate::utils::constants::{JAVA_VERSION_1_5, JAVA_VERSION_6, JAVA_VERSION_9};
 
 const MAGIC_CLASS_FILE_VERSION: u32 = 0xCAFEBABE;
 
-pub fn parse_class(class_file_name: &str) -> Class<'_> {
+pub fn parse_class(class_file_name: &str) -> Class {
     let contents = fs::read(class_file_name)
         .expect(&format!("Class file name {} could not be read!", class_file_name));
     let mut buf = Bytes::from(contents);
@@ -35,6 +35,10 @@ pub fn parse_class(class_file_name: &str) -> Class<'_> {
     verify_modifiers(class_file_name, major_version, access_flags);
 
     let this_class = buf.get_u16();
+    let name = constant_pool.resolve_class_name(this_class as usize)
+        .expect(&format!("Invalid class file {}! Expected class constant to be at index {} in \
+            constant pool!", class_file_name, this_class))
+        .clone();
     let super_class = buf.get_u16();
 
     // Parse super interface indices
@@ -60,17 +64,11 @@ pub fn parse_class(class_file_name: &str) -> Class<'_> {
     }
 
     let attributes_count = buf.get_u16();
-    let mut source_file_name = None;
-    let mut inner_classes = None;
-    let mut record_components = None;
-    parse_attributes(
+    let (source_file_name, inner_classes, record_components) = parse_attributes(
         class_file_name,
         &constant_pool,
         attributes_count,
-        &mut buf,
-        &mut source_file_name,
-        &mut inner_classes,
-        &mut record_components
+        &mut buf
     );
 
     Class {
@@ -78,7 +76,7 @@ pub fn parse_class(class_file_name: &str) -> Class<'_> {
         minor_version,
         access_flags,
         constant_pool,
-        this_class,
+        name,
         super_class,
         interfaces,
         fields,
@@ -89,15 +87,16 @@ pub fn parse_class(class_file_name: &str) -> Class<'_> {
     }
 }
 
-fn parse_attributes<'a>(
+fn parse_attributes(
     class_file_name: &str,
-    pool: &'a ConstantPool,
+    pool: &ConstantPool,
     mut attribute_count: u16,
-    buf: &mut Bytes,
-    source_file_name: &mut Option<&'a str>,
-    inner_classes: &mut Option<Vec<InnerClassInfo<'a>>>,
-    record_components: &mut Option<Vec<RecordComponent<'a>>>
-) {
+    buf: &mut Bytes
+) -> (Option<String>, Option<Vec<InnerClassInfo>>, Option<Vec<RecordComponent>>) {
+    let mut source_file_name = None;
+    let mut inner_classes = None;
+    let mut record_components = None;
+
     while attribute_count > 0 {
         assert!(buf.len() >= 6, "Truncated class attributes for class file {}!", class_file_name);
         let attribute_name_index = buf.get_u16();
@@ -111,10 +110,11 @@ fn parse_attributes<'a>(
                 length of 2, was {}!", class_file_name, attribute_length);
             assert!(source_file_name.is_none(), "Duplicate source file attribute found for class file {}!", class_file_name);
             let source_file_index = buf.get_u16();
-            let source_file = pool.get_utf8(source_file_index as usize)
+            let source_file = pool.get_string(source_file_index as usize)
                 .expect(&format!("Invalid source file attribute for class file {}! Expected name \
-                    index {} to be in constant pool!", class_file_name, source_file_index));
-            *source_file_name = Some(source_file);
+                    index {} to be in constant pool!", class_file_name, source_file_index))
+                .clone();
+            source_file_name = Some(source_file);
         } else if attribute_name == TAG_INNER_CLASSES {
             assert!(inner_classes.is_none(), "Duplicate inner classes attribute found for class file {}!", class_file_name);
             let number_of_classes = buf.get_u16();
@@ -122,7 +122,7 @@ fn parse_attributes<'a>(
             for _ in 0..number_of_classes {
                 classes.push(InnerClassInfo::parse(class_file_name, pool, buf));
             }
-            *inner_classes = Some(classes);
+            inner_classes = Some(classes);
         } else if attribute_name == TAG_RECORD {
             assert!(record_components.is_none(), "Duplicate record attribute found for class file {}!", class_file_name);
             let components_count = buf.get_u16();
@@ -130,13 +130,14 @@ fn parse_attributes<'a>(
             for _ in 0..components_count {
                 components.push(RecordComponent::parse(class_file_name, pool, buf));
             }
-            *record_components = Some(components);
+            record_components = Some(components);
         } else {
             // Skip past any attribute that we don't recognise
             buf.advance(attribute_length as usize);
         }
         attribute_count -= 1;
     }
+    (source_file_name, inner_classes, record_components)
 }
 
 fn verify_modifiers(class_file_name: &str, major_version: u16, flags: u16) {

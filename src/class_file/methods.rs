@@ -9,12 +9,13 @@ use crate::types::constant_pool::ConstantPool;
 use crate::types::method::*;
 use crate::utils::constants::*;
 
-pub fn parse_method<'a>(class_file_name: &str, major_version: u16, is_interface: bool, pool: &'a ConstantPool, buf: &mut Bytes) -> Method<'a> {
+pub fn parse_method(class_file_name: &str, major_version: u16, is_interface: bool, pool: &ConstantPool, buf: &mut Bytes) -> Method {
     let mut access_flags = buf.get_u16();
     let name_index = buf.get_u16();
-    let name = pool.get_utf8(name_index as usize)
+    let name = pool.get_string(name_index as usize)
         .expect(&format!("Invalid method in class file {}! Expected name index {} to be in \
-            constant pool!", class_file_name, name_index));
+            constant pool!", class_file_name, name_index))
+        .clone();
     let descriptor_index = buf.get_u16();
     let descriptor_string = pool.get_string(descriptor_index as usize)
         .expect(&format!("Invalid method in class file {}! Expected descriptor index {} to be in \
@@ -38,7 +39,7 @@ pub fn parse_method<'a>(class_file_name: &str, major_version: u16, is_interface:
             panic!("Invalid static initializer method ({}) in class file {}! Must be static!", CLASS_INITIALIZER_METHOD_NAME, class_file_name);
         }
     } else {
-        verify_method_flags(class_file_name, major_version, access_flags, is_interface, name);
+        verify_method_flags(class_file_name, major_version, access_flags, is_interface, &name);
     }
     if name == OBJECT_INITIALIZER_METHOD_NAME {
         other_flags |= METHOD_IS_STATIC_INITIALIZER;
@@ -46,37 +47,30 @@ pub fn parse_method<'a>(class_file_name: &str, major_version: u16, is_interface:
     }
 
     let attribute_count = buf.get_u16();
-    let mut code = None;
-    let mut checked_exception_indices = Vec::new();
-    let mut parameters = Vec::new();
-    let mut generic_signature = None;
-    parse_attributes(
+    let (code, checked_exception_indices, parameters, generic_signature) = parse_attributes(
         class_file_name,
         major_version,
         pool,
         buf,
         access_flags,
-        attribute_count,
-        &mut code,
-        &mut checked_exception_indices,
-        &mut parameters,
-        &mut generic_signature
+        attribute_count
     );
     Method { name, descriptor, generic_signature, access_flags, parameters, code, checked_exception_indices, other_flags }
 }
 
-fn parse_attributes<'a>(
+fn parse_attributes(
     class_file_name: &str,
     major_version: u16,
-    pool: &'a ConstantPool,
+    pool: &ConstantPool,
     buf: &mut Bytes,
     access_flags: u16,
-    mut attribute_count: u16,
-    code: &mut Option<CodeBlock>,
-    checked_exception_indices: &mut Vec<u16>,
-    parameters: &mut Vec<MethodParameter>,
-    generic_signature: &mut Option<&'a str>
-) {
+    mut attribute_count: u16
+) -> (Option<CodeBlock>, Vec<u16>, Vec<MethodParameter>, Option<String>) {
+    let mut code = None;
+    let mut checked_exception_indices = Vec::new();
+    let mut parameters = Vec::new();
+    let mut generic_signature = None;
+
     while attribute_count > 0 {
         assert!(buf.len() >= 6, "Truncated method attributes for method in class file {}!", class_file_name);
         let attribute_name_index = buf.get_u16();
@@ -89,7 +83,7 @@ fn parse_attributes<'a>(
             assert!(code.is_none(), "Expected single code attribute for method in class file {}!", class_file_name);
             assert!(access_flags & ACC_NATIVE == 0 && access_flags & ACC_ABSTRACT == 0, "Invalid code attribute \
                 for method in class file {}! Abstract and native methods must not have code attributes!", class_file_name);
-            *code = Some(parse_code(class_file_name, pool, buf));
+            code = Some(parse_code(class_file_name, pool, buf));
         } else if attribute_name == TAG_EXCEPTIONS {
             assert!(checked_exception_indices.is_empty(), "Expected single exceptions attribute for method in \
                 class file {}!", class_file_name);
@@ -112,7 +106,9 @@ fn parse_attributes<'a>(
                 file {}!", attribute_length, class_file_name);
         } else if major_version >= JAVA_VERSION_1_5 {
             if attribute_name == TAG_SIGNATURE {
-                parse_generic_signature(class_file_name, pool, attribute_length, buf, "method", generic_signature);
+                assert!(generic_signature.is_none(), "Duplicate generic signature attribute found \
+                    for method in class file {}!", class_file_name);
+                generic_signature = parse_generic_signature(class_file_name, pool, attribute_length, buf, "method");
             }
         } else {
             // Skip past any attribute that we don't recognise
@@ -120,6 +116,7 @@ fn parse_attributes<'a>(
         }
         attribute_count += 1;
     }
+    (code, checked_exception_indices, parameters, generic_signature)
 }
 
 fn parse_code(class_file_name: &str, pool: &ConstantPool, buf: &mut Bytes) -> CodeBlock {
@@ -140,14 +137,7 @@ fn parse_code(class_file_name: &str, pool: &ConstantPool, buf: &mut Bytes) -> Co
 
     // Parse attributes
     let attribute_count = buf.get_u16();
-    let mut line_number_table = None;
-    parse_code_attributes(
-        class_file_name,
-        attribute_count,
-        pool,
-        buf,
-        &mut line_number_table
-    );
+    let line_number_table = parse_code_attributes(class_file_name, attribute_count, pool, buf);
     CodeBlock { max_stack, max_locals, code, exception_handlers, line_number_table }
 }
 
@@ -155,9 +145,10 @@ fn parse_code_attributes(
     class_file_name: &str,
     mut attribute_count: u16,
     pool: &ConstantPool,
-    buf: &mut Bytes,
-    line_number_table: &mut Option<LineNumberTable>
-) {
+    buf: &mut Bytes
+) -> Option<LineNumberTable> {
+    let mut line_number_table = None;
+
     while attribute_count > 0 {
         assert!(buf.len() > 6, "Truncated code attributes for method in class file {}!", class_file_name);
         let attribute_name_index = buf.get_u16();
@@ -172,13 +163,14 @@ fn parse_code_attributes(
             for _ in 0..table_length {
                 table.push(LineNumberEntry::parse(buf));
             }
-            *line_number_table = Some(table)
+            line_number_table = Some(table)
         } else {
             // Skip past any attribute that we don't recognise
             buf.advance(attribute_length as usize);
         }
         attribute_count -= 1;
     }
+    line_number_table
 }
 
 fn verify_method_flags(class_file_name: &str, major_version: u16, flags: u16, is_interface: bool, name: &str) {
