@@ -39,7 +39,7 @@ impl InnerClassInfo {
         let outer_index = buf.get_u16();
         let name_index = buf.get_u16();
         let name = pool.get_string(name_index as usize)
-            .expect(&format!("Invalid inner class for class file {}! Expected name at \
+            .expect(&format!("Invalid inner class_file for class_file file {}! Expected name at \
                 index {}!", class_file_name, name_index))
             .clone();
         let access_flags = buf.get_u16();

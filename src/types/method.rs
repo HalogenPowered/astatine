@@ -1,18 +1,19 @@
 use bytes::{Buf, Bytes};
 use java_desc::MethodType;
+
+use crate::class_file::code::CodeBlock;
 use crate::types::access_flags::*;
-use crate::types::code::CodeBlock;
 use crate::types::constant_pool::ConstantPool;
 use crate::types::utils::{Generic, Nameable};
 
 pub struct Method {
-    pub name: String,
+    name: String,
     pub descriptor: MethodType,
-    pub generic_signature: Option<String>,
+    generic_signature: Option<String>,
     pub access_flags: u16,
-    pub parameters: Vec<MethodParameter>,
+    parameters: Vec<MethodParameter>,
     pub code: Option<CodeBlock>,
-    pub checked_exception_indices: Vec<u16>,
+    checked_exception_indices: Vec<u16>,
     pub other_flags: u8
 }
 
@@ -21,6 +22,27 @@ pub const METHOD_IS_CONSTRUCTOR: u8 = 0x01;
 pub const METHOD_IS_STATIC_INITIALIZER: u8 = 0x02;
 
 impl Method {
+    pub const fn new(
+        name: String,
+        descriptor: MethodType,
+        generic_signature: Option<String>,
+        access_flags: u16,
+        parameters: Vec<MethodParameter>,
+        code: Option<CodeBlock>,
+        checked_exception_indices: Vec<u16>,
+        other_flags: u8
+    ) -> Self {
+        Method { name, descriptor, generic_signature, access_flags, parameters, code, checked_exception_indices, other_flags }
+    }
+
+    pub fn get_parameter(&self, index: usize) -> Option<&MethodParameter> {
+        self.parameters.get(index)
+    }
+
+    pub fn get_checked_exception(&self, index: usize) -> Option<&u16> {
+        self.checked_exception_indices.get(index)
+    }
+
     pub fn is_constructor(&self) -> bool {
         self.other_flags & METHOD_IS_CONSTRUCTOR != 0
     }
@@ -77,7 +99,7 @@ impl MethodParameter {
     pub fn parse(class_file_name: &str, pool: &ConstantPool, buf: &mut Bytes) -> Self {
         let name_index = buf.get_u16();
         let name = pool.get_string(name_index as usize)
-            .expect(&format!("Invalid method parameter for method in class file {}! Expected name at \
+            .expect(&format!("Invalid method parameter for method in class_file file {}! Expected name at \
                 index {}!", class_file_name, name_index))
             .clone();
         let access_flags = buf.get_u16();

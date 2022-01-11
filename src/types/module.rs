@@ -19,14 +19,14 @@ impl Module {
     pub fn parse(class_file_name: &str, pool: &ConstantPool, buf: &mut Bytes) -> Self {
         let name_index = buf.get_u16();
         let name = pool.get_string(name_index as usize)
-            .expect(&format!("Invalid module for class file {}! Expected name at index {} in constant \
+            .expect(&format!("Invalid module for class_file file {}! Expected name at index {} in constant \
                 pool!", class_file_name, name_index))
             .clone();
         let flags = buf.get_u16();
         let version_index = buf.get_u16();
         let version = pool.get_string(version_index as usize).map(|value| value.clone());
         if version_index != 0 {
-            assert!(version.is_some(), "Invalid version attribute for module in class file {}! Expected \
+            assert!(version.is_some(), "Invalid version attribute for module in class_file file {}! Expected \
                 value for non-zero version index {}!", class_file_name, version_index);
         }
 
@@ -128,7 +128,7 @@ impl ModuleRequires {
         let version_index = buf.get_u16();
         let version = pool.get_string(version_index as usize).map(|value| value.clone());
         if version_index != 0 {
-            assert!(version.is_some(), "Invalid version attribute for module requirement in class \
+            assert!(version.is_some(), "Invalid version attribute for module requirement in class_file \
                 file {}! Expected value for non-zero version index {}!", class_file_name, version_index);
         }
         ModuleRequires { module_index, flags, version }
@@ -249,11 +249,11 @@ impl ModuleComponent for ModuleProvides {
 fn read_module_index(class_file_name: &str, pool: &ConstantPool, buf: &mut Bytes) -> u16 {
     let index = buf.get_u16();
     assert!(pool.has(index as usize), "Invalid module index for module part in \
-            class file {}! Expected index {} to be in constant pool!", class_file_name, index);
+            class_file file {}! Expected index {} to be in constant pool!", class_file_name, index);
     let tag = pool.get_tag(index as usize)
-        .expect(&format!("Invalid module index for module part in class file {}! Expected \
+        .expect(&format!("Invalid module index for module part in class_file file {}! Expected \
             tag at index {}!", class_file_name, index));
-    assert_eq!(tag, &MODULE_TAG, "Invalid module index for module part in class file {}! \
+    assert_eq!(tag, &MODULE_TAG, "Invalid module index for module part in class_file file {}! \
         Expected module at index {}!", class_file_name, index);
     index
 }

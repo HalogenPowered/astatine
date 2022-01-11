@@ -10,7 +10,7 @@ impl ConstantPool {
         let count = buf.get_u16();
         let mut tags = Vec::with_capacity(count as usize);
         let mut constants = Vec::with_capacity(count as usize);
-        for _ in 0..count {
+        for _ in 0..count - 1 {
             let tag = buf.get_u8();
             tags.push(tag);
             constants.push(PoolConstant::parse(tag, buf));
@@ -29,11 +29,11 @@ impl ConstantPool {
     }
 
     pub fn get_tag(&self, index: usize) -> Option<&u8> {
-        self.tags.get(index)
+        self.tags.get(index - 1)
     }
 
     pub fn get(&self, index: usize) -> Option<&PoolConstant> {
-        self.constants.get(index)
+        self.constants.get(index - 1)
     }
 
     pub fn get_utf8(&self, index: usize) -> Option<&str> {
@@ -42,7 +42,7 @@ impl ConstantPool {
 
     // Same as get_utf8, but returns the underlying String object, rather than a splice
     pub fn get_string(&self, index: usize) -> Option<&String> {
-        match self.constants.get(index) {
+        match self.get(index) {
             Some(PoolConstant::Utf8(value)) => Some(value),
             _ => None
         }
@@ -56,28 +56,28 @@ impl ConstantPool {
     }
 
     pub fn get_float(&self, index: usize) -> Option<&f32> {
-        match self.constants.get(index) {
+        match self.get(index) {
             Some(PoolConstant::Float(value)) => Some(value),
             _ => None
         }
     }
 
     pub fn get_long(&self, index: usize) -> Option<&i64> {
-        match self.constants.get(index) {
+        match self.get(index) {
             Some(PoolConstant::Long(value)) => Some(value),
             _ => None
         }
     }
 
     pub fn get_double(&self, index: usize) -> Option<&f64> {
-        match self.constants.get(index) {
+        match self.get(index) {
             Some(PoolConstant::Double(value)) => Some(value),
             _ => None
         }
     }
 
     pub fn resolve_class_name(&self, index: usize) -> Option<&String> {
-        match self.constants.get(index) {
+        match self.get(index) {
             Some(PoolConstant::Class { name_index }) => self.get_string(*name_index as usize),
             _ => None
         }

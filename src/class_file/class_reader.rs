@@ -17,7 +17,7 @@ pub fn parse_class(class_file_name: &str) -> Class {
     let mut buf = Bytes::from(contents);
     let magic = buf.get_u32();
     if magic != MAGIC_CLASS_FILE_VERSION {
-        panic!("Invalid class file {}! Expected magic header {}, got {}!", class_file_name, MAGIC_CLASS_FILE_VERSION, magic);
+        panic!("Invalid class_file file {}! Expected magic header {}, got {}!", class_file_name, MAGIC_CLASS_FILE_VERSION, magic);
     }
     let minor_version = buf.get_u16();
     let major_version = buf.get_u16();
@@ -98,25 +98,25 @@ fn parse_attributes(
     let mut record_components = None;
 
     while attribute_count > 0 {
-        assert!(buf.len() >= 6, "Truncated class attributes for class file {}!", class_file_name);
+        assert!(buf.len() >= 6, "Truncated class_file attributes for class_file file {}!", class_file_name);
         let attribute_name_index = buf.get_u16();
         let attribute_length = buf.get_u32();
         let attribute_name = pool.get_utf8(attribute_name_index as usize)
-            .expect(&format!("Invalid class attribute index {} for class file {}! Expected name \
+            .expect(&format!("Invalid class_file attribute index {} for class_file file {}! Expected name \
                 to be in constant pool!", attribute_name_index, class_file_name));
 
         if attribute_name == TAG_SOURCE_FILE {
-            assert_eq!(attribute_length, 2, "Invalid source file attribute for class file {}! Expected \
+            assert_eq!(attribute_length, 2, "Invalid source file attribute for class_file file {}! Expected \
                 length of 2, was {}!", class_file_name, attribute_length);
-            assert!(source_file_name.is_none(), "Duplicate source file attribute found for class file {}!", class_file_name);
+            assert!(source_file_name.is_none(), "Duplicate source file attribute found for class_file file {}!", class_file_name);
             let source_file_index = buf.get_u16();
             let source_file = pool.get_string(source_file_index as usize)
-                .expect(&format!("Invalid source file attribute for class file {}! Expected name \
+                .expect(&format!("Invalid source file attribute for class_file file {}! Expected name \
                     index {} to be in constant pool!", class_file_name, source_file_index))
                 .clone();
             source_file_name = Some(source_file);
         } else if attribute_name == TAG_INNER_CLASSES {
-            assert!(inner_classes.is_none(), "Duplicate inner classes attribute found for class file {}!", class_file_name);
+            assert!(inner_classes.is_none(), "Duplicate inner classes attribute found for class_file file {}!", class_file_name);
             let number_of_classes = buf.get_u16();
             let mut classes = Vec::with_capacity(number_of_classes as usize);
             for _ in 0..number_of_classes {
@@ -124,7 +124,7 @@ fn parse_attributes(
             }
             inner_classes = Some(classes);
         } else if attribute_name == TAG_RECORD {
-            assert!(record_components.is_none(), "Duplicate record attribute found for class file {}!", class_file_name);
+            assert!(record_components.is_none(), "Duplicate record attribute found for class_file file {}!", class_file_name);
             let components_count = buf.get_u16();
             let mut components = Vec::with_capacity(components_count as usize);
             for _ in 0..components_count {
@@ -142,9 +142,9 @@ fn parse_attributes(
 
 fn verify_modifiers(class_file_name: &str, major_version: u16, flags: u16) {
     let is_module = (flags & ACC_MODULE) != 0;
-    assert!(major_version >= JAVA_VERSION_9 || !is_module, "Invalid class file {}! Module flag should \
+    assert!(major_version >= JAVA_VERSION_9 || !is_module, "Invalid class_file file {}! Module flag should \
         not be set for classes before Java 9!", class_file_name);
-    assert!(!is_module, "Cannot load class file {} as it is a module!", class_file_name);
+    assert!(!is_module, "Cannot load class_file file {} as it is a module!", class_file_name);
 
     let is_final = (flags & ACC_FINAL) != 0;
     let is_super = (flags & ACC_SUPER) != 0;
@@ -158,5 +158,5 @@ fn verify_modifiers(class_file_name: &str, major_version: u16, flags: u16) {
         (is_interface && !is_abstract) ||
         (is_interface && major_1_5_or_above && (is_super || is_enum)) ||
         (!is_interface && major_1_5_or_above && is_annotation);
-    assert!(!is_illegal, "Invalid class file {}! Illegal class modifiers {}!", class_file_name, flags);
+    assert!(!is_illegal, "Invalid class_file file {}! Illegal class_file modifiers {}!", class_file_name, flags);
 }

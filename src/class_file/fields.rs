@@ -11,16 +11,16 @@ pub fn parse_field(class_file_name: &str, major_version: u16, pool: &ConstantPoo
     let access_flags = buf.get_u16();
     let name_index = buf.get_u16();
     let name = pool.get_string(name_index as usize)
-        .expect(&format!("Invalid field in class file {}! Expected name at index {} in \
+        .expect(&format!("Invalid field in class_file file {}! Expected name at index {} in \
             constant pool!", class_file_name, name_index))
         .clone();
 
     let descriptor_index = buf.get_u16();
     let descriptor_string = pool.get_utf8(descriptor_index as usize)
-        .expect(&format!("Invalid field in class file {}! Expected descriptor at index {} in \
+        .expect(&format!("Invalid field in class_file file {}! Expected descriptor at index {} in \
             constant pool!", class_file_name, descriptor_index));
     let descriptor = FieldType::parse(descriptor_string)
-        .expect(&format!("Invalid descriptor for field in class file {}!", class_file_name));
+        .expect(&format!("Invalid descriptor for field in class_file file {}!", class_file_name));
 
     let attributes_count = buf.get_u16();
     let is_static = access_flags & ACC_STATIC != 0;
@@ -33,7 +33,7 @@ pub fn parse_field(class_file_name: &str, major_version: u16, pool: &ConstantPoo
         pool,
         buf
     );
-    Field { name, descriptor, generic_signature, access_flags, constant_value }
+    Field::new(name, descriptor, generic_signature, access_flags, constant_value)
 }
 
 fn parse_attributes(
@@ -49,11 +49,11 @@ fn parse_attributes(
     let mut generic_signature = None;
 
     while attributes_count > 0 {
-        assert!(buf.len() >= 6, "Truncated field attributes for field in class file {}!", class_file_name);
+        assert!(buf.len() >= 6, "Truncated field attributes for field in class_file file {}!", class_file_name);
         let attribute_name_index = buf.get_u16();
         let attribute_length = buf.get_u32();
         let attribute_name = pool.get_utf8(attribute_name_index as usize)
-            .expect(&format!("Invalid field attribute index {} in class file {}! Expected name \
+            .expect(&format!("Invalid field attribute index {} in class_file file {}! Expected name \
                 to be in constant pool!", attribute_name_index, class_file_name));
 
         if is_static && attribute_name == TAG_CONSTANT_VALUE {
@@ -61,19 +61,19 @@ fn parse_attributes(
                 panic!("Duplicate ConstantValue attribute!")
             }
             assert_eq!(attribute_length, 2, "Invalid ConstantValue attribute! Expected length of 2, \
-                    was {} for class file {}!", attribute_length, class_file_name);
+                    was {} for class_file file {}!", attribute_length, class_file_name);
             let constant_value_index = buf.get_u16();
             constant_value = parse_constant_value(class_file_name, pool, constant_value_index, descriptor);
         } else if attribute_name == TAG_SYNTHETIC {
-            assert_eq!(attribute_length, 0, "Invalid synthetic attribute length {} for field in class \
+            assert_eq!(attribute_length, 0, "Invalid synthetic attribute length {} for field in class_file \
                 file {}!", attribute_length, class_file_name);
         } else if attribute_name == TAG_DEPRECATED {
-            assert_eq!(attribute_length, 0, "Invalid deprecated attribute length {} for field in class \
+            assert_eq!(attribute_length, 0, "Invalid deprecated attribute length {} for field in class_file \
                 file {}!", attribute_length, class_file_name);
         } else if major_version >= JAVA_VERSION_1_5 {
             if attribute_name == TAG_SIGNATURE {
                 assert!(generic_signature.is_none(), "Duplicate generic signature attribute found \
-                    for field in class file {}!", class_file_name);
+                    for field in class_file file {}!", class_file_name);
                 generic_signature = parse_generic_signature(class_file_name, pool, attribute_length, buf, "field");
             }
         } else {
@@ -91,7 +91,7 @@ fn parse_constant_value(class_file_name: &str, pool: &ConstantPool, index: u16, 
     assert!(index > 0 && index < (pool.len() as u16), "Bad constant value! Failed to find value at index {}!", index);
 
     let value_type = pool.get_tag(index as usize)
-        .expect(&format!("Invalid constant value for field in class file {}! Expected tag for \
+        .expect(&format!("Invalid constant value for field in class_file file {}! Expected tag for \
             constant value index {}!", class_file_name, index));
     match &descriptor.base {
         SingleType::Long => {
