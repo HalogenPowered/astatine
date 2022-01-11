@@ -75,7 +75,6 @@ fn parse_attributes(
         assert!(buf.len() >= 6, "Truncated method attributes for method in class_file file {}!", class_file_name);
         let attribute_name_index = buf.get_u16();
         let attribute_length = buf.get_u32();
-        println!("Remaining: {}", buf.len());
         let attribute_name = pool.get_utf8(attribute_name_index as usize)
             .expect(&format!("Invalid method attribute index {} in class_file file {}! Expected name \
                 to be in constant pool!", attribute_name_index, class_file_name));
@@ -115,7 +114,7 @@ fn parse_attributes(
             // Skip past any attribute that we don't recognise
             buf.advance(attribute_length as usize);
         }
-        attribute_count += 1;
+        attribute_count -= 1;
     }
     (code, checked_exception_indices, parameters, generic_signature)
 }

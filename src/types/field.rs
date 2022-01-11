@@ -3,6 +3,7 @@ use java_desc::FieldType;
 use crate::types::access_flags::*;
 use crate::types::utils::{Generic, Nameable};
 
+#[derive(Debug)]
 pub struct Field {
     name: String,
     pub descriptor: FieldType,
@@ -53,6 +54,7 @@ impl Generic for Field {
     }
 }
 
+#[derive(Debug)]
 pub enum ConstantValue {
     Integer(i32),
     Long(i64),

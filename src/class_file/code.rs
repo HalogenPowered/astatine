@@ -5,6 +5,7 @@ use crate::class_file::stack_map_table::{StackMapFrame, StackMapTable};
 use crate::types::constant_pool::ConstantPool;
 use crate::types::utils::Nameable;
 
+#[derive(Debug)]
 pub struct CodeBlock {
     pub max_stack: u16,
     pub max_locals: u16,
@@ -57,6 +58,7 @@ impl CodeBlock {
 
 pub type ExceptionHandlerTable = Vec<ExceptionHandlerBlock>;
 
+#[derive(Debug)]
 pub struct ExceptionHandlerBlock {
     pub start_pc: u16,
     pub end_pc: u16,
@@ -76,6 +78,7 @@ impl ExceptionHandlerBlock {
 
 pub type LocalVariableTable = Vec<LocalVariable>;
 
+#[derive(Debug)]
 pub struct LocalVariable {
     name: String,
     pub descriptor: FieldType,

@@ -11,6 +11,7 @@ pub fn parse_stack_map_table(buf: &mut Bytes) -> StackMapTable {
 
 pub type StackMapTable = Vec<StackMapFrame>;
 
+#[derive(Debug)]
 pub struct StackMapFrame {
     pub frame_type: u8,
     pub offset_delta: u16,
@@ -78,6 +79,7 @@ const ITEM_UNINITIALIZED_THIS: u8 = 6;
 const ITEM_OBJECT: u8 = 7;
 const ITEM_UNINITIALIZED: u8 = 8;
 
+#[derive(Debug)]
 pub enum VerificationType {
     Top,
     Integer,

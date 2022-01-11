@@ -6,6 +6,7 @@ use crate::types::access_flags::*;
 use crate::types::constant_pool::ConstantPool;
 use crate::types::utils::{Generic, Nameable};
 
+#[derive(Debug)]
 pub struct Method {
     name: String,
     pub descriptor: MethodType,
@@ -90,6 +91,7 @@ impl Generic for Method {
     }
 }
 
+#[derive(Debug)]
 pub struct MethodParameter {
     name: String,
     pub access_flags: u16

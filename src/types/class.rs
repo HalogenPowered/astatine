@@ -5,6 +5,7 @@ use crate::types::method::Method;
 use crate::types::record::RecordComponent;
 use crate::types::utils::Nameable;
 
+#[derive(Debug)]
 pub struct Class {
     pub minor_version: u16,
     pub major_version: u16,
@@ -26,6 +27,7 @@ impl Nameable for Class {
     }
 }
 
+#[derive(Debug)]
 pub struct InnerClassInfo {
     pub index: u16,
     name: String,

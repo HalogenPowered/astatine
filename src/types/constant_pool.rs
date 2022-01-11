@@ -1,5 +1,6 @@
 use bytes::{Buf, Bytes};
 
+#[derive(Debug)]
 pub struct ConstantPool {
     tags: Vec<u8>,
     constants: Vec<PoolConstant>
@@ -102,6 +103,7 @@ pub const INVOKE_DYNAMIC_TAG: u8 = 18;
 pub const MODULE_TAG: u8 = 19;
 pub const PACKAGE_TAG: u8 = 20;
 
+#[derive(Debug)]
 pub enum PoolConstant {
     Utf8(String),
     Integer(i32),

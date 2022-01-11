@@ -6,6 +6,7 @@ use crate::class_file::utils::parse_generic_signature;
 use crate::types::constant_pool::ConstantPool;
 use crate::types::utils::{Generic, Nameable};
 
+#[derive(Debug)]
 pub struct RecordComponent {
     name: String,
     pub descriptor: FieldType,

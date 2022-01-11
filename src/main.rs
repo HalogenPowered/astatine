@@ -10,5 +10,6 @@ fn main() {
     io::stdin().read_line(&mut buffer).expect("Expected input!");
     let input = buffer.trim_end();
     println!("{}", input);
-    parse_class(&input);
+    let class = parse_class(&input);
+    println!("{:?}", class);
 }
