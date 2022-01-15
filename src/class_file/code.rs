@@ -9,7 +9,7 @@ use crate::types::utils::Nameable;
 pub struct CodeBlock {
     pub max_stack: u16,
     pub max_locals: u16,
-    code: Vec<u8>,
+    pub code: Vec<u8>,
     exception_handlers: ExceptionHandlerTable,
     line_numbers: Option<HashMap<u16, u16>>,
     local_variables: Option<LocalVariableTable>,
@@ -29,6 +29,10 @@ impl CodeBlock {
         stack_map_table: Option<StackMapTable>
     ) -> Self {
         CodeBlock { max_stack, max_locals, code, exception_handlers, line_numbers, local_variables, local_variable_types, stack_map_table }
+    }
+
+    pub fn code(&self) -> &[u8] {
+        self.code.as_slice()
     }
 
     pub fn get_code(&self, index: usize) -> Option<&u8> {
