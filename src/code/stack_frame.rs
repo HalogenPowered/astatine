@@ -1,4 +1,4 @@
-use crate::objects::heap::HEAP_SPACE;
+use crate::objects::heap::HeapSpace;
 use crate::objects::object::{InstanceObject, ReferenceArrayObject, TypeArrayObject};
 use crate::objects::reference::Reference;
 use crate::utils::vm_types::ReturnAddress;
@@ -15,48 +15,57 @@ impl StackFrame {
         StackFrame { local_variables, operand_stack }
     }
 
-    pub fn get_local_bool(&self, index: usize) -> Option<bool> {
-        self.local_variables.get(index).map(|value| *value != 0)
+    pub fn get_local_bool(&self, index: usize) -> bool {
+        self.get_local(index) != 0
     }
 
-    pub fn get_local_byte(&self, index: usize) -> Option<i8> {
-        self.local_variables.get(index).map(|value| (*value & 255) as i8)
+    pub fn get_local_byte(&self, index: usize) -> i8 {
+        (self.get_local(index) & 255) as i8
     }
 
-    pub fn get_local_char(&self, index: usize) -> Option<char> {
-        self.local_variables.get(index).and_then(|value| char::from_u32(*value))
+    pub fn get_local_char(&self, index: usize) -> char {
+        char::from_u32(self.get_local(index))
+            .expect(&format!("Invalid character at local variable index {}!", index))
     }
 
-    pub fn get_local_short(&self, index: usize) -> Option<i16> {
-        self.local_variables.get(index).map(|value| (*value & 65535) as i16)
+    pub fn get_local_short(&self, index: usize) -> i16 {
+        (self.get_local(index) & 65535) as i16
     }
 
-    pub fn get_local_int(&self, index: usize) -> Option<i32> {
-        self.local_variables.get(index).map(|value| *value as i32)
+    pub fn get_local_int(&self, index: usize) -> i32 {
+        self.get_local(index) as i32
     }
 
-    pub fn get_local_float(&self, index: usize) -> Option<f32> {
-        self.local_variables.get(index).map(|value| f32::from_bits(*value))
+    pub fn get_local_float(&self, index: usize) -> f32 {
+        f32::from_bits(self.get_local(index))
     }
 
-    pub fn get_local_long(&self, index: usize) -> Option<i64> {
-        let most = self.local_variables.get(index)?;
-        let least = self.local_variables.get(index + 1)?;
-        Some(parts_to_long(*most, *least))
+    pub fn get_local_long(&self, index: usize) -> i64 {
+        parts_to_long(self.get_local(index), self.get_local(index + 1))
     }
 
-    pub fn get_local_double(&self, index: usize) -> Option<f64> {
-        let most = self.local_variables.get(index)?;
-        let least = self.local_variables.get(index + 1)?;
-        Some(parts_to_double(*most, *least))
+    pub fn get_local_double(&self, index: usize) -> f64 {
+        parts_to_double(self.get_local(index), self.get_local(index + 1))
     }
 
-    pub fn get_local_ref<T>(&self, index: usize) -> Option<Box<T>> {
-        unsafe { self.local_variables.get(index).map(|value| Box::from_raw(*value as *mut T)) }
+    pub fn get_local_ref<'a, 'b>(&'a self, index: usize, heap: &'b HeapSpace<'b>) -> Reference<&'b InstanceObject<'b>> {
+        self.get_ref(self.get_local(index), |index| heap.get_ref(index))
+    }
+
+    pub fn get_local_ref_array<'a, 'b>(&'a self, index: usize, heap: &'b HeapSpace<'b>) -> Reference<&'b ReferenceArrayObject<'b, 'b>> {
+        self.get_ref(self.get_local(index), |index| heap.get_ref_array(index))
+    }
+
+    pub fn get_local_type_array<'a, 'b>(&'a self, index: usize, heap: &'b HeapSpace<'b>) -> Reference<&'b TypeArrayObject<'b>> {
+        self.get_ref(self.get_local(index), |index| heap.get_type_array(index))
     }
 
     pub fn get_local_return_address(&self, index: usize) -> Option<ReturnAddress> {
         self.local_variables.get(index).map(|value| *value)
+    }
+
+    fn get_local(&self, index: usize) -> u32 {
+        *self.local_variables.get(index).expect(&format!("Invalid local variable index {}!", index))
     }
 
     pub fn push_bool_op(&mut self, value: bool) {
@@ -138,16 +147,16 @@ impl StackFrame {
         parts_to_double(self.pop_op(), self.pop_op())
     }
 
-    pub fn pop_ref_op(&mut self) -> Reference<&InstanceObject> {
-        self.pop_ref(|index| HEAP_SPACE.get_ref(index))
+    pub fn pop_ref_op<'a, 'b>(&'a mut self, heap: &'b HeapSpace<'b>) -> Reference<&'b InstanceObject<'b>> {
+        self.get_ref(self.pop_op(), |index| heap.get_ref(index))
     }
 
-    pub fn pop_ref_array_op(&mut self) -> Reference<&ReferenceArrayObject> {
-        self.pop_ref(|index| HEAP_SPACE.get_ref_array(index))
+    pub fn pop_ref_array_op<'a, 'b>(&'a mut self, heap: &'b HeapSpace<'b>) -> Reference<&'b ReferenceArrayObject<'b, 'b>> {
+        self.get_ref(self.pop_op(), |index| heap.get_ref_array(index))
     }
 
-    pub fn pop_type_array_op(&mut self) -> Reference<&TypeArrayObject> {
-        self.pop_ref(|index| HEAP_SPACE.get_type_array(index))
+    pub fn pop_type_array_op<'a, 'b>(&'a mut self, heap: &'b HeapSpace<'b>) -> Reference<&'b TypeArrayObject<'b>> {
+        self.get_ref(self.pop_op(), |index| heap.get_type_array(index))
     }
 
     fn pop_op(&mut self) -> u32 {
@@ -155,12 +164,11 @@ impl StackFrame {
             succeeded, this should be impossible!")
     }
 
-    fn pop_ref<T, F>(&mut self, f: F) -> Reference<T> where F : Fn(usize) -> Option<T> {
-        let offset = self.pop_op();
+    fn get_ref<T, F>(&self, offset: u32, f: F) -> Reference<T> where F : Fn(usize) -> Option<T> {
         let ref_index = (offset + 1) as usize;
         match offset {
             0 => Reference::Null,
-            _ => Reference::Value(f(ref_index).expect("Invalid reference in operand stack!"))
+            _ => Reference::Value(f(ref_index).expect("Invalid reference in stack frame!"))
         }
     }
 }

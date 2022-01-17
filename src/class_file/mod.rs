@@ -5,3 +5,4 @@ pub mod utils;
 pub mod fields;
 pub mod stack_map_table;
 pub mod code;
+pub mod class_loader;

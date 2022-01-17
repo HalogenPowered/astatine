@@ -31,10 +31,6 @@ impl CodeBlock {
         CodeBlock { max_stack, max_locals, code, exception_handlers, line_numbers, local_variables, local_variable_types, stack_map_table }
     }
 
-    pub fn code(&self) -> &[u8] {
-        self.code.as_slice()
-    }
-
     pub fn get_code(&self, index: usize) -> Option<&u8> {
         self.code.get(index)
     }
