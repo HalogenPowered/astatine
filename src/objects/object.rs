@@ -1,12 +1,10 @@
-use std::sync::RwLock;
-
 use crate::types::class::Class;
 use crate::utils::vm_types::ArrayType;
 
-pub enum HeapEntry<'a> {
-    Instance(&'a InstanceObject<'a>),
-    ReferenceArray(&'a ReferenceArrayObject<'a, 'a>),
-    TypeArray(&'a TypeArrayObject<'a>)
+pub enum HeapEntry {
+    Instance(Box<InstanceObject>),
+    ReferenceArray(Box<ReferenceArrayObject>),
+    TypeArray(Box<TypeArrayObject>)
 }
 
 /// Represents something that has been allocated on the heap by the VM, such as an object
@@ -17,14 +15,14 @@ pub trait HeapObject {
     fn class(&self) -> &Class;
 }
 
-pub struct InstanceObject<'a> {
+pub struct InstanceObject {
     offset: usize,
-    class: &'a Class,
+    class: Box<Class>,
     fields: Vec<u32>
 }
 
-impl<'a> InstanceObject<'a> {
-    pub fn new(offset: usize, class: &'a Class, field_count: usize) -> InstanceObject<'a> {
+impl InstanceObject {
+    pub fn new(offset: usize, class: Box<Class>, field_count: usize) -> InstanceObject {
         InstanceObject { offset, class, fields: Vec::with_capacity(field_count) }
     }
 
@@ -100,60 +98,60 @@ impl<'a> InstanceObject<'a> {
     }
 }
 
-impl HeapObject for InstanceObject<'_> {
+impl HeapObject for InstanceObject {
     fn offset(&self) -> usize {
         self.offset
     }
 
     fn class(&self) -> &Class {
-        self.class
+        &self.class
     }
 }
 
-pub struct ReferenceArrayObject<'a, 'b> {
+pub struct ReferenceArrayObject {
     offset: usize,
-    class: &'a Class,
-    element_class: &'a Class,
-    elements: RwLock<Vec<&'b InstanceObject<'b>>>
+    class: Box<Class>,
+    element_class: Box<Class>,
+    elements: Vec<*const Box<InstanceObject>>
 }
 
-impl<'a, 'b> ReferenceArrayObject<'a, 'b> {
-    pub fn new(offset: usize, class: &'a Class, element_class: &'a Class, size: usize) -> ReferenceArrayObject<'a, 'b> {
-        ReferenceArrayObject { offset, class, element_class, elements: RwLock::new(Vec::with_capacity(size)) }
+impl ReferenceArrayObject {
+    pub fn new(offset: usize, class: Box<Class>, element_class: Box<Class>, size: usize) -> ReferenceArrayObject {
+        ReferenceArrayObject { offset, class, element_class, elements: Vec::with_capacity(size) }
     }
 
     pub fn element_class(&self) -> &Class {
-        self.element_class
+        &self.element_class
     }
 
-    pub fn get(&self, index: usize) -> Option<&'b InstanceObject<'b>> {
-        self.elements.read().ok().and_then(|vec| vec.get(index)).map(|value| *value)
+    pub fn get(&self, index: usize) -> Option<&Box<InstanceObject>> {
+        unsafe { self.elements.get(index).and_then(|value| value.as_ref()) }
     }
 
-    pub fn set(&self, index: usize, value: &'b InstanceObject<'b>) {
-        self.elements.write().map(|mut option| option.insert(index, value));
+    pub fn set(&mut self, index: usize, value: &Box<InstanceObject>) {
+        self.elements.insert(index, value);
     }
 }
 
-impl HeapObject for ReferenceArrayObject<'_, '_> {
+impl HeapObject for ReferenceArrayObject {
     fn offset(&self) -> usize {
         self.offset
     }
 
     fn class(&self) -> &Class {
-        self.class
+        &self.class
     }
 }
 
-pub struct TypeArrayObject<'a> {
+pub struct TypeArrayObject {
     offset: usize,
-    class: &'a Class,
+    class: Box<Class>,
     pub array_type: ArrayType,
     elements: Vec<u32>
 }
 
-impl<'a> TypeArrayObject<'a> {
-    pub fn new(offset: usize, class: &'a Class, array_type: ArrayType, size: usize) -> TypeArrayObject<'a> {
+impl TypeArrayObject {
+    pub fn new(offset: usize, class: Box<Class>, array_type: ArrayType, size: usize) -> TypeArrayObject {
         TypeArrayObject { offset, class, array_type, elements: Vec::with_capacity(size) }
     }
 
@@ -233,12 +231,12 @@ impl<'a> TypeArrayObject<'a> {
     }
 }
 
-impl HeapObject for TypeArrayObject<'_> {
+impl HeapObject for TypeArrayObject {
     fn offset(&self) -> usize {
         self.offset
     }
 
     fn class(&self) -> &Class {
-        self.class
+        &self.class
     }
 }

@@ -48,16 +48,16 @@ impl StackFrame {
         parts_to_double(self.get_local(index), self.get_local(index + 1))
     }
 
-    pub fn get_local_ref<'a, 'b>(&'a self, index: usize, heap: &'b HeapSpace<'b>) -> Reference<&'b InstanceObject<'b>> {
-        self.get_ref(self.get_local(index), |index| heap.get_ref(index))
+    pub fn get_local_ref<'a, 'b>(&'a self, index: usize, heap: &'b Box<HeapSpace>) -> Reference<&'b Box<InstanceObject>> {
+        StackFrame::get_ref(self.get_local(index), |index| heap.get_ref(index))
     }
 
-    pub fn get_local_ref_array<'a, 'b>(&'a self, index: usize, heap: &'b HeapSpace<'b>) -> Reference<&'b ReferenceArrayObject<'b, 'b>> {
-        self.get_ref(self.get_local(index), |index| heap.get_ref_array(index))
+    pub fn get_local_ref_array<'a, 'b>(&'a self, index: usize, heap: &'b Box<HeapSpace>) -> Reference<&'b Box<ReferenceArrayObject>> {
+        StackFrame::get_ref(self.get_local(index), |index| heap.get_ref_array(index))
     }
 
-    pub fn get_local_type_array<'a, 'b>(&'a self, index: usize, heap: &'b HeapSpace<'b>) -> Reference<&'b TypeArrayObject<'b>> {
-        self.get_ref(self.get_local(index), |index| heap.get_type_array(index))
+    pub fn get_local_type_array<'a, 'b>(&'a self, index: usize, heap: &'b Box<HeapSpace>) -> Reference<&'b Box<TypeArrayObject>> {
+        StackFrame::get_ref(self.get_local(index), |index| heap.get_type_array(index))
     }
 
     pub fn get_local_return_address(&self, index: usize) -> Option<ReturnAddress> {
@@ -147,16 +147,16 @@ impl StackFrame {
         parts_to_double(self.pop_op(), self.pop_op())
     }
 
-    pub fn pop_ref_op<'a, 'b>(&'a mut self, heap: &'b HeapSpace<'b>) -> Reference<&'b InstanceObject<'b>> {
-        self.get_ref(self.pop_op(), |index| heap.get_ref(index))
+    pub fn pop_ref_op<'a, 'b>(&'a mut self, heap: &'b Box<HeapSpace>) -> Reference<&'b Box<InstanceObject>> {
+        StackFrame::get_ref(self.pop_op(), |index| heap.get_ref(index))
     }
 
-    pub fn pop_ref_array_op<'a, 'b>(&'a mut self, heap: &'b HeapSpace<'b>) -> Reference<&'b ReferenceArrayObject<'b, 'b>> {
-        self.get_ref(self.pop_op(), |index| heap.get_ref_array(index))
+    pub fn pop_ref_array_op<'a, 'b>(&'a mut self, heap: &'b Box<HeapSpace>) -> Reference<&'b Box<ReferenceArrayObject>> {
+        StackFrame::get_ref(self.pop_op(), |index| heap.get_ref_array(index))
     }
 
-    pub fn pop_type_array_op<'a, 'b>(&'a mut self, heap: &'b HeapSpace<'b>) -> Reference<&'b TypeArrayObject<'b>> {
-        self.get_ref(self.pop_op(), |index| heap.get_type_array(index))
+    pub fn pop_type_array_op<'a, 'b>(&'a mut self, heap: &'b Box<HeapSpace>) -> Reference<&'b Box<TypeArrayObject>> {
+        StackFrame::get_ref(self.pop_op(), |index| heap.get_type_array(index))
     }
 
     fn pop_op(&mut self) -> u32 {
@@ -164,7 +164,7 @@ impl StackFrame {
             succeeded, this should be impossible!")
     }
 
-    fn get_ref<T, F>(&self, offset: u32, f: F) -> Reference<T> where F : Fn(usize) -> Option<T> {
+    fn get_ref<T, F>(offset: u32, f: F) -> Reference<T> where F : Fn(usize) -> Option<T> {
         let ref_index = (offset + 1) as usize;
         match offset {
             0 => Reference::Null,
