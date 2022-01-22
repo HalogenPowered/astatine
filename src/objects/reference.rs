@@ -1,3 +1,4 @@
+#[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Copy, Clone)]
 pub enum Reference<T> {
     Value(T),
     Null

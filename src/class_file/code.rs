@@ -1,15 +1,18 @@
 use std::collections::HashMap;
 use bytes::{Buf, Bytes};
 use java_desc::FieldType;
-use crate::class_file::stack_map_table::{StackMapFrame, StackMapTable};
+use super::attribute_tags::*;
+use super::stack_map_table::*;
+use crate::code::stack_frame::StackFrame;
 use crate::types::constant_pool::ConstantPool;
-use crate::types::utils::Nameable;
+use crate::types::utils::{FieldTyped, Nameable};
+use crate::utils::buffer::BufferExtras;
 
 #[derive(Debug)]
 pub struct CodeBlock {
-    pub max_stack: u16,
-    pub max_locals: u16,
-    pub code: Vec<u8>,
+    max_stack: u16,
+    max_locals: u16,
+    code: Vec<u8>,
     exception_handlers: ExceptionHandlerTable,
     line_numbers: Option<HashMap<u16, u16>>,
     local_variables: Option<LocalVariableTable>,
@@ -18,6 +21,27 @@ pub struct CodeBlock {
 }
 
 impl CodeBlock {
+    pub(crate) fn parse(class_file_name: &str, pool: &ConstantPool, buf: &mut Bytes) -> Self {
+        let max_stack = buf.get_u16();
+        let max_locals = buf.get_u16();
+        let code_length = buf.get_u32() as usize;
+        let code = buf.get_u8_array(code_length);
+        let exception_handlers = ExceptionHandlerTable::parse(buf);
+        let attribute_count = buf.get_u16();
+        let (line_number_table, local_variable_table, local_variable_type_table, stack_map_table) =
+            parse_attributes(class_file_name, pool, buf, attribute_count);
+        CodeBlock::new(
+            max_stack,
+            max_locals,
+            code,
+            exception_handlers,
+            line_number_table,
+            local_variable_table,
+            local_variable_type_table,
+            stack_map_table
+        )
+    }
+
     pub const fn new(
         max_stack: u16,
         max_locals: u16,
@@ -28,67 +52,143 @@ impl CodeBlock {
         local_variable_types: Option<LocalVariableTable>,
         stack_map_table: Option<StackMapTable>
     ) -> Self {
-        CodeBlock { max_stack, max_locals, code, exception_handlers, line_numbers, local_variables, local_variable_types, stack_map_table }
+        CodeBlock {
+            max_stack,
+            max_locals,
+            code,
+            exception_handlers,
+            line_numbers,
+            local_variables,
+            local_variable_types,
+            stack_map_table
+        }
     }
 
-    pub fn get_code(&self, index: usize) -> Option<&u8> {
-        self.code.get(index)
+    pub fn max_stack(&self) -> u16 {
+        self.max_stack
     }
 
-    pub fn get_exception_handler(&self, index: usize) -> Option<&ExceptionHandlerBlock> {
-        self.exception_handlers.get(index)
+    pub fn max_locals(&self) -> u16 {
+        self.max_locals
     }
 
-    pub fn get_line_number(&self, code_index: u16) -> Option<&u16> {
-        self.line_numbers.as_ref().and_then(|map| map.get(&code_index))
+    pub fn code(&self) -> &[u8] {
+        self.code.as_slice()
     }
 
-    pub fn get_local_variable(&self, index: usize) -> Option<&LocalVariable> {
-        self.local_variables.as_ref().and_then(|table| table.get(index))
+    pub fn exception_handlers(&self) -> &ExceptionHandlerTable {
+        &self.exception_handlers
     }
 
-    pub fn get_local_variable_type(&self, index: usize) -> Option<&LocalVariable> {
-        self.local_variable_types.as_ref().and_then(|table| table.get(index))
+    pub fn local_variables(&self) -> Option<&LocalVariableTable> {
+        self.local_variables.as_ref()
     }
 
-    pub fn get_stack_map_frame(&self, index: usize) -> Option<&StackMapFrame> {
-        self.stack_map_table.as_ref().and_then(|table| table.get(index))
+    pub fn local_variable_types(&self) -> Option<&LocalVariableTable> {
+        self.local_variable_types.as_ref()
+    }
+
+    pub fn stack_map_table(&self) -> Option<&StackMapTable> {
+        self.stack_map_table.as_ref()
+    }
+
+    pub fn new_stack_frame(&self) -> StackFrame {
+        StackFrame::new(self.max_stack, self.max_locals)
+    }
+
+    pub fn new_code_reader(&self) -> Bytes {
+        Bytes::copy_from_slice(self.code.as_slice())
     }
 }
 
-pub type ExceptionHandlerTable = Vec<ExceptionHandlerBlock>;
+#[derive(Debug)]
+pub struct ExceptionHandlerTable {
+    handlers: Vec<ExceptionHandlerBlock>
+}
+
+impl ExceptionHandlerTable {
+    pub(crate) fn parse(buf: &mut Bytes) -> Self {
+        ExceptionHandlerTable::new(buf.get_generic_u16_array(|buf| ExceptionHandlerBlock::parse(buf)))
+    }
+
+    pub const fn new(handlers: Vec<ExceptionHandlerBlock>) -> Self {
+        ExceptionHandlerTable { handlers }
+    }
+
+    pub fn get(&self, index: usize) -> Option<&ExceptionHandlerBlock> {
+        self.handlers.get(index)
+    }
+}
 
 #[derive(Debug)]
 pub struct ExceptionHandlerBlock {
-    pub start_pc: u16,
-    pub end_pc: u16,
-    pub handler_pc: u16,
-    pub catch_type: u16
+    start_pc: u16,
+    end_pc: u16,
+    handler_pc: u16,
+    catch_type: u16
 }
 
 impl ExceptionHandlerBlock {
-    pub fn parse(buf: &mut Bytes) -> Self {
-        let start_pc = buf.get_u16();
-        let end_pc = buf.get_u16();
-        let handler_pc = buf.get_u16();
-        let catch_type = buf.get_u16();
+    pub(crate) fn parse(buf: &mut Bytes) -> Self {
+        ExceptionHandlerBlock::new(buf.get_u16(), buf.get_u16(), buf.get_u16(), buf.get_u16())
+    }
+
+    pub const fn new(start_pc: u16, end_pc: u16, handler_pc: u16, catch_type: u16) -> Self {
         ExceptionHandlerBlock { start_pc, end_pc, handler_pc, catch_type }
+    }
+
+    pub fn start_pc(&self) -> u16 {
+        self.start_pc
+    }
+
+    pub fn end_pc(&self) -> u16 {
+        self.end_pc
+    }
+
+    pub fn handler_pc(&self) -> u16 {
+        self.handler_pc
+    }
+
+    pub fn catch_type(&self) -> u16 {
+        self.catch_type
     }
 }
 
-pub type LocalVariableTable = Vec<LocalVariable>;
+#[derive(Debug)]
+pub struct LocalVariableTable {
+    variables: Vec<LocalVariable>
+}
+
+impl LocalVariableTable {
+    pub(crate) fn parse(class_file_name: &str, pool: &ConstantPool, buf: &mut Bytes) -> Self {
+        LocalVariableTable::new(buf.get_generic_u16_array(
+            |buf| LocalVariable::parse(class_file_name, pool, buf)))
+    }
+
+    pub const fn new(variables: Vec<LocalVariable>) -> Self {
+        LocalVariableTable { variables }
+    }
+
+    pub fn variables(&self) -> &[LocalVariable] {
+        self.variables.as_slice()
+    }
+
+    pub fn get(&self, index: usize) -> Option<&LocalVariable> {
+        self.variables.get(index)
+    }
+}
 
 #[derive(Debug)]
 pub struct LocalVariable {
     name: String,
-    pub descriptor: FieldType,
-    pub start_pc: u16,
-    pub length: u16,
-    pub index: u16
+    descriptor: FieldType,
+    start_pc: u16,
+    length: u16,
+    index: u16
 }
 
 impl LocalVariable {
-    pub fn parse(class_file_name: &str, pool: &ConstantPool, buf: &mut Bytes) -> Self {
+    pub(crate) fn parse(class_file_name: &str, pool: &ConstantPool, buf: &mut Bytes) -> Self {
         let start_pc = buf.get_u16();
         let length = buf.get_u16();
 
@@ -107,10 +207,75 @@ impl LocalVariable {
         let index = buf.get_u16();
         LocalVariable { name, descriptor, start_pc, length, index }
     }
+
+    pub fn new(name: &str, descriptor: FieldType, start_pc: u16, length: u16, index: u16) -> Self {
+        LocalVariable { name: String::from(name), descriptor, start_pc, length, index }
+    }
+
+    pub fn start_pc(&self) -> u16 {
+        self.start_pc
+    }
+
+    pub fn length(&self) -> u16 {
+        self.length
+    }
+
+    pub fn index(&self) -> u16 {
+        self.index
+    }
 }
 
 impl Nameable for LocalVariable {
     fn name(&self) -> &str {
-        &self.name
+        self.name.as_str()
     }
+}
+
+impl FieldTyped for LocalVariable {
+    fn descriptor(&self) -> &FieldType {
+        &self.descriptor
+    }
+}
+
+fn parse_attributes(
+    class_file_name: &str,
+    pool: &ConstantPool,
+    buf: &mut Bytes,
+    mut attribute_count: u16
+) -> (Option<HashMap<u16, u16>>, Option<LocalVariableTable>, Option<LocalVariableTable>, Option<StackMapTable>) {
+    let mut line_number_table = None;
+    let mut local_variable_table = None;
+    let mut local_variable_type_table = None;
+    let mut stack_map_table = None;
+
+    while attribute_count > 0 {
+        assert!(buf.len() > 6, "Truncated code attributes for method in class file {}!", class_file_name);
+        let attribute_name_index = buf.get_u16();
+        let attribute_length = buf.get_u32();
+        let attribute_name = pool.get_utf8(attribute_name_index as usize)
+            .expect(&format!("Invalid code attribute index {} in class file {}! Expected name \
+                to be in constant pool!", attribute_name_index, class_file_name));
+
+        if attribute_name == TAG_LINE_NUMBER_TABLE {
+            let table_length = buf.get_u16();
+            let mut table = HashMap::with_capacity(table_length as usize);
+            for _ in 0..table_length {
+                let start_pc = buf.get_u16();
+                let line_number = buf.get_u16();
+                table.insert(start_pc, line_number);
+            }
+            line_number_table = Some(table)
+        } else if attribute_name == TAG_LOCAL_VARIABLE_TABLE {
+            local_variable_table = Some(LocalVariableTable::parse(class_file_name, pool, buf));
+        } else if attribute_name == TAG_LOCAL_VARIABLE_TYPE_TABLE {
+            local_variable_type_table = Some(LocalVariableTable::parse(class_file_name, pool, buf));
+        } else if attribute_name == TAG_STACK_MAP_TABLE {
+            stack_map_table = Some(StackMapTable::parse(buf));
+        } else {
+            // Skip past any attribute that we don't recognise
+            buf.advance(attribute_length as usize);
+        }
+        attribute_count -= 1;
+    }
+    (line_number_table, local_variable_table, local_variable_type_table, stack_map_table)
 }

@@ -1,56 +1,40 @@
-use crate::objects::object::{HeapEntry, InstanceObject, ReferenceArrayObject, TypeArrayObject};
+use crate::objects::object::*;
 
 pub struct HeapSpace {
     allocated: Vec<HeapEntry>
 }
 
+macro_rules! ref_get_push {
+    ($get_name:ident, $push_name:ident, $type:ty, $entry:ident) => {
+        pub fn $get_name(&self, index: usize) -> Option<&Box<$type>> {
+            match self.allocated.get(index) {
+                Some(HeapEntry::$entry(object)) => Some(object),
+                _ => None
+            }
+        }
+
+        pub fn $push_name(&mut self, object: Box<$type>) {
+            self.allocated.push(HeapEntry::$entry(object))
+        }
+    }
+}
+
 impl HeapSpace {
-    pub fn new() -> HeapSpace {
+    pub const fn new() -> HeapSpace {
         HeapSpace { allocated: Vec::new() }
-    }
-
-    pub fn get_ref(&self, index: usize) -> Option<&Box<InstanceObject>> {
-        match self.get(index) {
-            Some(HeapEntry::Instance(object)) => Some(object),
-            _ => None
-        }
-    }
-
-    pub fn get_ref_array(&self, index: usize) -> Option<&Box<ReferenceArrayObject>> {
-        match self.get(index) {
-            Some(HeapEntry::ReferenceArray(array)) => Some(array),
-            _ => None
-        }
-    }
-
-    pub fn get_type_array(&self, index: usize) -> Option<&Box<TypeArrayObject>> {
-        match self.get(index) {
-            Some(HeapEntry::TypeArray(array)) => Some(array),
-            _ => None
-        }
-    }
-
-    fn get(&self, index: usize) -> Option<&HeapEntry> {
-        self.allocated.get(index)
-    }
-
-    pub fn push_ref(&mut self, object: Box<InstanceObject>) {
-        self.push(HeapEntry::Instance(object));
-    }
-
-    pub fn push_ref_array(&mut self, array: Box<ReferenceArrayObject>) {
-        self.push(HeapEntry::ReferenceArray(array));
-    }
-
-    pub fn push_type_array(&mut self, array: Box<TypeArrayObject>) {
-        self.push(HeapEntry::TypeArray(array));
-    }
-
-    fn push(&mut self, entry: HeapEntry) {
-        self.allocated.push(entry);
     }
 
     pub fn get_offset(&self) -> usize {
         self.allocated.as_ptr() as usize
     }
+
+    ref_get_push!(get_ref, push_ref, InstanceObject, Instance);
+    ref_get_push!(get_ref_array, push_ref_array, ReferenceArrayObject, ReferenceArray);
+    ref_get_push!(get_type_array, push_type_array, TypeArrayObject, TypeArray);
+}
+
+enum HeapEntry {
+    Instance(Box<InstanceObject>),
+    ReferenceArray(Box<ReferenceArrayObject>),
+    TypeArray(Box<TypeArrayObject>)
 }

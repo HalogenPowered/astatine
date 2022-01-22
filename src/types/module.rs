@@ -1,12 +1,13 @@
 use bytes::{Buf, Bytes};
-
-use crate::types::access_flags::{ACC_MANDATED, ACC_OPEN, ACC_SYNTHETIC};
-use crate::types::constant_pool::{ConstantPool, MODULE_TAG};
-use crate::types::utils::Nameable;
+use super::access_flags::*;
+use super::constant_pool::{MODULE_TAG, PACKAGE_TAG};
+use crate::class_file::version::ClassFileVersion;
+use crate::types::constant_pool::ConstantPool;
+use crate::utils::buffer::BufferExtras;
 
 pub struct Module {
     name: String,
-    pub flags: u16,
+    access_flags: u16,
     version: Option<String>,
     requires: Vec<ModuleRequires>,
     exports: Vec<ModuleExports>,
@@ -15,123 +16,158 @@ pub struct Module {
     provides: Vec<ModuleProvides>
 }
 
+const JAVA_BASE_NAME: &str = "java.base";
+
 impl Module {
-    pub fn parse(class_file_name: &str, pool: &ConstantPool, buf: &mut Bytes) -> Self {
+    pub(crate) fn parse(
+        class_file_name: &str,
+        pool: &ConstantPool,
+        buf: &mut Bytes,
+        class_version: &ClassFileVersion
+    ) -> Self {
         let name_index = buf.get_u16();
         let name = pool.get_string(name_index as usize)
-            .expect(&format!("Invalid module for class_file file {}! Expected name at index {} in constant \
-                pool!", class_file_name, name_index))
+            .expect(&format!("Invalid module for class file {}! Expected name at index {} in \
+                constant pool!", class_file_name, name_index))
             .clone();
-        let flags = buf.get_u16();
+        let access_flags = buf.get_u16();
         let version_index = buf.get_u16();
         let version = pool.get_string(version_index as usize).map(|value| value.clone());
         if version_index != 0 {
-            assert!(version.is_some(), "Invalid version attribute for module in class_file file {}! Expected \
-                value for non-zero version index {}!", class_file_name, version_index);
+            assert!(version.is_some(), "Invalid version attribute for module in class file {}! \
+                Expected value for non-zero version index {}!", class_file_name, version_index);
         }
 
         let requires_count = buf.get_u16();
-        let mut requires = Vec::with_capacity(requires_count as usize);
-        for _ in 0..requires_count {
-            requires.push(ModuleRequires::parse(class_file_name, pool, buf));
+        if requires_count != 0 && name == JAVA_BASE_NAME {
+            panic!("Invalid java.base module in class file {}! The base module cannot have \
+                requirements!", class_file_name);
         }
-        let exports_count = buf.get_u16();
-        let mut exports = Vec::with_capacity(exports_count as usize);
-        for _ in 0..exports_count {
-            exports.push(ModuleExports::parse(class_file_name, pool, buf));
+        if requires_count == 0 && name != JAVA_BASE_NAME {
+            panic!("Invalid module {} in class file {}! All modules other than the base module \
+                must explicitly require the base module!", name, class_file_name);
         }
-        let opens_count = buf.get_u16();
-        let mut opens = Vec::with_capacity(opens_count as usize);
-        for _ in 0..opens_count {
-            opens.push(ModuleOpens::parse(class_file_name, pool, buf));
+
+        let requires = buf.get_generic_array(requires_count as usize,
+                                             |buf| ModuleRequires::parse(class_file_name, pool, buf,
+                                                                         class_version, &name));
+        let exports = buf.get_generic_u16_array(|buf| ModuleExports::parse(class_file_name, pool, buf));
+        let opens = buf.get_generic_u16_array(|buf| ModuleOpens::parse(class_file_name, pool, buf));
+        let uses = buf.get_u16_array();
+        let provides = buf.get_generic_u16_array(|buf| ModuleProvides::parse(class_file_name, pool, buf));
+        Module { name, access_flags, version, requires, exports, opens, uses, provides }
+    }
+
+    pub fn new(
+        name: &str,
+        access_flags: u16,
+        version: Option<&str>,
+        requires: Vec<ModuleRequires>,
+        exports: Vec<ModuleExports>,
+        opens: Vec<ModuleOpens>,
+        uses: Vec<u16>,
+        provides: Vec<ModuleProvides>
+    ) -> Module {
+        Module {
+            name: String::from(name),
+            access_flags,
+            version: version.map(|value| String::from(value)),
+            requires,
+            exports,
+            opens,
+            uses,
+            provides
         }
-        let uses_count = buf.get_u16();
-        let mut uses = Vec::with_capacity(uses_count as usize);
-        for _ in 0..uses_count {
-            uses.push(buf.get_u16());
-        }
-        let provides_count = buf.get_u16();
-        let mut provides = Vec::with_capacity(provides_count as usize);
-        for _ in 0..provides_count {
-            provides.push(ModuleProvides::parse(class_file_name, pool, buf));
-        }
-        Module { name, flags, version, requires, exports, opens, uses, provides }
     }
 
     pub fn version(&self) -> Option<&str> {
         self.version.as_ref().map(|value| value.as_str())
     }
 
-    pub fn get_requires(&self, index: usize) -> Option<&ModuleRequires> {
-        self.requires.get(index)
+    pub fn requires(&self) -> &[ModuleRequires] {
+        self.requires.as_slice()
     }
 
-    pub fn get_exports(&self, index: usize) -> Option<&ModuleExports> {
-        self.exports.get(index)
+    pub fn exports(&self) -> &[ModuleExports] {
+        self.exports.as_slice()
     }
 
-    pub fn get_opens(&self, index: usize) -> Option<&ModuleOpens> {
-        self.opens.get(index)
+    pub fn opens(&self) -> &[ModuleOpens] {
+        self.opens.as_slice()
     }
 
-    pub fn get_use(&self, index: usize) -> Option<&u16> {
-        self.uses.get(index)
+    pub fn uses(&self) -> &[u16] {
+        self.uses.as_slice()
     }
 
-    pub fn get_provides(&self, index: usize) -> Option<&ModuleProvides> {
-        self.provides.get(index)
+    pub fn provides(&self) -> &[ModuleProvides] {
+        self.provides.as_slice()
     }
 
     pub fn is_open(&self) -> bool {
-        self.flags & ACC_OPEN != 0
-    }
-
-    pub fn is_synthetic(&self) -> bool {
-        self.flags & ACC_SYNTHETIC != 0
-    }
-
-    pub fn is_mandated(&self) -> bool {
-        self.flags & ACC_MANDATED != 0
+        self.access_flags & ACC_OPEN != 0
     }
 }
 
-impl Nameable for Module {
-    fn name(&self) -> &str {
-        &self.name
-    }
-}
+impl_nameable!(Module);
+impl_versioned!(Module);
+impl_accessible!(Module);
+impl_accessible!(Module, MandatedAccessible);
 
 pub trait ModuleComponent {
-    fn module_index(&self) -> u16;
+}
 
-    fn flags(&self) -> u16;
+macro_rules! module_component_impl {
+    ($T:ident) => {
+        impl ModuleComponent for $T {
+        }
 
-    fn is_synthetic(&self) -> bool {
-        self.flags() & ACC_SYNTHETIC != 0
-    }
+        impl Accessible for $T {
+            fn flags(&self) -> u16 {
+                self.access_flags
+            }
+        }
 
-    fn is_mandated(&self) -> bool {
-        self.flags() & ACC_MANDATED != 0
+        impl_accessible!($T, MandatedAccessible);
     }
 }
 
 pub struct ModuleRequires {
-    pub module_index: u16,
-    pub flags: u16,
+    module_index: u16,
+    access_flags: u16,
     version: Option<String>
 }
 
 impl ModuleRequires {
-    pub fn parse(class_file_name: &str, pool: &ConstantPool, buf: &mut Bytes) -> Self {
+    pub(crate) fn parse(
+        class_file_name: &str,
+        pool: &ConstantPool,
+        buf: &mut Bytes,
+        version: &ClassFileVersion,
+        module_name: &str
+    ) -> Self {
         let module_index = read_module_index(class_file_name, pool, buf);
-        let flags = buf.get_u16();
+        let access_flags = buf.get_u16();
+        check_requires_flags(module_name, version, access_flags);
         let version_index = buf.get_u16();
         let version = pool.get_string(version_index as usize).map(|value| value.clone());
         if version_index != 0 {
-            assert!(version.is_some(), "Invalid version attribute for module requirement in class_file \
+            assert!(version.is_some(), "Invalid version attribute for module requirement in class \
                 file {}! Expected value for non-zero version index {}!", class_file_name, version_index);
         }
-        ModuleRequires { module_index, flags, version }
+        ModuleRequires { module_index, access_flags, version }
+    }
+
+    pub fn new(module_index: u16, access_flags: u16, version: Option<&str>) -> Self {
+        ModuleRequires {
+            module_index,
+            access_flags,
+            version: version.map(|value| String::from(value))
+        }
+    }
+
+    pub fn module_index(&self) -> u16 {
+        self.module_index
     }
 
     pub fn version(&self) -> Option<&str> {
@@ -139,121 +175,99 @@ impl ModuleRequires {
     }
 }
 
-impl ModuleComponent for ModuleRequires {
-    fn module_index(&self) -> u16 {
-        self.module_index
-    }
-
-    fn flags(&self) -> u16 {
-        self.flags
+fn check_requires_flags(module_name: &str, version: &ClassFileVersion, flags: u16) {
+    if module_name != JAVA_BASE_NAME && version >= &ClassFileVersion::RELEASE_10 {
+        assert!(flags & ACC_TRANSIENT == 0 && flags & ACC_STATIC_PHASE == 0, "Invalid module \
+            requires flags! ACC_TRANSITIVE ({}) and ACC_STATIC_PHASE ({}) cannot be set for \
+            requirements on modules other than java.base for class files from Java 10 or \
+            later!", ACC_TRANSIENT, ACC_STATIC_PHASE);
     }
 }
 
-pub struct ModuleExports {
-    pub module_index: u16,
-    pub flags: u16,
-    to_indices: Vec<u16>
-}
+module_component_impl!(ModuleRequires);
+impl_versioned!(ModuleRequires);
 
-impl ModuleExports {
-    pub fn parse(class_file_name: &str, pool: &ConstantPool, buf: &mut Bytes) -> Self {
-        let module_index = read_module_index(class_file_name, pool, buf);
-        let flags = buf.get_u16();
-        let to_count = buf.get_u16();
-        let mut to_indices = Vec::with_capacity(to_count as usize);
-        for _ in 0..to_count {
-            to_indices.push(buf.get_u16());
+macro_rules! common_exports_opens {
+    ($T:ident) => {
+        pub struct $T {
+            package_index: u16,
+            access_flags: u16,
+            to_indices: Vec<u16>
         }
-        ModuleExports { module_index, flags, to_indices }
-    }
 
-    pub fn get_to(&self, index: usize) -> Option<u16> {
-        self.to_indices.get(index).map(|value| *value)
-    }
-}
+        impl $T {
+            pub(crate) fn parse(
+                class_file_name: &str,
+                pool: &ConstantPool,
+                buf: &mut Bytes
+            ) -> Self {
+                $T::new(read_package_index(class_file_name, pool, buf), buf.get_u16(),
+                    buf.get_u16_array())
+            }
 
-impl ModuleComponent for ModuleExports {
-    fn module_index(&self) -> u16 {
-        self.module_index
-    }
+            pub const fn new(package_index: u16, access_flags: u16, to_indices: Vec<u16>) -> Self {
+                $T { package_index, access_flags, to_indices }
+            }
 
-    fn flags(&self) -> u16 {
-        self.flags
-    }
-}
+            pub fn package_index(&self) -> u16 {
+                self.package_index
+            }
 
-pub struct ModuleOpens {
-    pub module_index: u16,
-    pub flags: u16,
-    to_indices: Vec<u16>
-}
+            pub fn is_qualified(&self) -> bool {
+                !self.to_indices.is_empty()
+            }
 
-impl ModuleOpens {
-    pub fn parse(class_file_name: &str, pool: &ConstantPool, buf: &mut Bytes) -> Self {
-        let module_index = read_module_index(class_file_name, pool, buf);
-        let flags = buf.get_u16();
-        let to_count = buf.get_u16();
-        let mut to_indices = Vec::with_capacity(to_count as usize);
-        for _ in 0..to_count {
-            to_indices.push(buf.get_u16());
+            pub fn to_indices(&self) -> &[u16] {
+                self.to_indices.as_slice()
+            }
         }
-        ModuleOpens { module_index, flags, to_indices }
-    }
 
-    pub fn get_to(&self, index: usize) -> Option<u16> {
-        self.to_indices.get(index).map(|value| *value)
+        module_component_impl!($T);
     }
 }
 
-impl ModuleComponent for ModuleOpens {
-    fn module_index(&self) -> u16 {
-        self.module_index
-    }
 
-    fn flags(&self) -> u16 {
-        self.flags
-    }
-}
+common_exports_opens!(ModuleExports);
+common_exports_opens!(ModuleOpens);
 
 pub struct ModuleProvides {
-    pub module_index: u16,
+    module_index: u16,
     with_indices: Vec<u16>
 }
 
 impl ModuleProvides {
-    pub fn parse(class_file_name: &str, pool: &ConstantPool, buf: &mut Bytes) -> Self {
-        let module_index = read_module_index(class_file_name, pool, buf);
-        let with_count = buf.get_u16();
-        let mut with_indices = Vec::with_capacity(with_count as usize);
-        for _ in 0..with_count {
-            with_indices.push(buf.get_u16());
-        }
+    pub(crate) fn parse(class_file_name: &str, pool: &ConstantPool, buf: &mut Bytes) -> Self {
+        ModuleProvides::new(read_module_index(class_file_name, pool, buf), buf.get_u16_array())
+    }
+
+    pub const fn new(module_index: u16, with_indices: Vec<u16>) -> Self {
         ModuleProvides { module_index, with_indices }
     }
 
-    pub fn get_with(&self, index: usize) -> Option<u16> {
-        self.with_indices.get(index).map(|value| *value)
+    pub fn module_index(&self) -> u16 {
+        self.module_index
     }
 }
 
 impl ModuleComponent for ModuleProvides {
-    fn module_index(&self) -> u16 {
-        self.module_index
-    }
+}
 
-    fn flags(&self) -> u16 {
-        0
+macro_rules! generate_index_reader {
+    ($name:ident, $index_name:ident, $tag:expr) => {
+        fn $name(class_file_name: &str, pool: &ConstantPool, buf: &mut Bytes) -> u16 {
+            let index = buf.get_u16();
+            assert!(pool.has(index as usize), "Invalid $index_name index for module part \
+                in class file {}! Expected index {} to be in constant \
+                pool!", class_file_name, index);
+            let tag = pool.get_tag(index as usize)
+                .expect(&format!("Invalid $index_name index for module part in class file {}! \
+                    Expected tag at index {}!", class_file_name, index));
+            assert_eq!(tag, $tag, "Invalid $index_name index for module part in class file {}! \
+                Expected $index_name at index {}!", class_file_name, index);
+            index
+        }
     }
 }
 
-fn read_module_index(class_file_name: &str, pool: &ConstantPool, buf: &mut Bytes) -> u16 {
-    let index = buf.get_u16();
-    assert!(pool.has(index as usize), "Invalid module index for module part in \
-            class_file file {}! Expected index {} to be in constant pool!", class_file_name, index);
-    let tag = pool.get_tag(index as usize)
-        .expect(&format!("Invalid module index for module part in class_file file {}! Expected \
-            tag at index {}!", class_file_name, index));
-    assert_eq!(tag, &MODULE_TAG, "Invalid module index for module part in class_file file {}! \
-        Expected module at index {}!", class_file_name, index);
-    index
-}
+generate_index_reader!(read_module_index, module, MODULE_TAG);
+generate_index_reader!(read_package_index, package, PACKAGE_TAG);

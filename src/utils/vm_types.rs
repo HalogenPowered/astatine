@@ -9,6 +9,7 @@ pub const T_SHORT: u8 = 9;
 pub const T_INT: u8 = 10;
 pub const T_LONG: u8 = 11;
 
+#[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Copy, Clone)]
 #[repr(u8)]
 pub enum ArrayType {
     Boolean = T_BOOLEAN,

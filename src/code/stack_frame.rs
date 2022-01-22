@@ -1,7 +1,31 @@
 use crate::objects::heap::HeapSpace;
-use crate::objects::object::{InstanceObject, ReferenceArrayObject, TypeArrayObject};
+use crate::objects::object::*;
 use crate::objects::reference::Reference;
 use crate::utils::vm_types::ReturnAddress;
+
+macro_rules! get_ref {
+    ($name:ident, $ty:ty, $getter_name: ident) => {
+        pub fn $name<'a, 'b>(&'a self, index: usize, heap: &'b Box<HeapSpace>) -> Reference<&'b Box<$ty>> {
+            StackFrame::get_ref(self.get_local(index), |index| heap.$getter_name(index))
+        }
+    }
+}
+
+macro_rules! pop_ref_op {
+    ($name:ident, $ty:ty, $getter_name:ident) => {
+        pub fn $name<'a, 'b>(&'a mut self, heap: &'b Box<HeapSpace>) -> Reference<&'b Box<$ty>> {
+            StackFrame::get_ref(self.pop_op(), |index| heap.$getter_name(index))
+        }
+    }
+}
+
+macro_rules! push_op {
+    ($name:ident, $ty:ty) => {
+        pub fn $name(&mut self, value: $ty) {
+            self.push_op(value as u32)
+        }
+    }
+}
 
 pub struct StackFrame {
     local_variables: Vec<u32>,
@@ -48,17 +72,9 @@ impl StackFrame {
         parts_to_double(self.get_local(index), self.get_local(index + 1))
     }
 
-    pub fn get_local_ref<'a, 'b>(&'a self, index: usize, heap: &'b Box<HeapSpace>) -> Reference<&'b Box<InstanceObject>> {
-        StackFrame::get_ref(self.get_local(index), |index| heap.get_ref(index))
-    }
-
-    pub fn get_local_ref_array<'a, 'b>(&'a self, index: usize, heap: &'b Box<HeapSpace>) -> Reference<&'b Box<ReferenceArrayObject>> {
-        StackFrame::get_ref(self.get_local(index), |index| heap.get_ref_array(index))
-    }
-
-    pub fn get_local_type_array<'a, 'b>(&'a self, index: usize, heap: &'b Box<HeapSpace>) -> Reference<&'b Box<TypeArrayObject>> {
-        StackFrame::get_ref(self.get_local(index), |index| heap.get_type_array(index))
-    }
+    get_ref!(get_local_ref, InstanceObject, get_ref);
+    get_ref!(get_local_ref_array, ReferenceArrayObject, get_ref_array);
+    get_ref!(get_local_type_array, TypeArrayObject, get_type_array);
 
     pub fn get_local_return_address(&self, index: usize) -> Option<ReturnAddress> {
         self.local_variables.get(index).map(|value| *value)
@@ -68,29 +84,12 @@ impl StackFrame {
         *self.local_variables.get(index).expect(&format!("Invalid local variable index {}!", index))
     }
 
-    pub fn push_bool_op(&mut self, value: bool) {
-        self.push_op(value as u32);
-    }
-
-    pub fn push_byte_op(&mut self, value: i8) {
-        self.push_op(value as u32);
-    }
-
-    pub fn push_char_op(&mut self, value: char) {
-        self.push_op(value as u32);
-    }
-
-    pub fn push_short_op(&mut self, value: i16) {
-        self.push_op(value as u32);
-    }
-
-    pub fn push_int_op(&mut self, value: i32) {
-        self.push_op(value as u32);
-    }
-
-    pub fn push_float_op(&mut self, value: f32) {
-        self.push_op(value as u32);
-    }
+    push_op!(push_bool_op, bool);
+    push_op!(push_byte_op, i8);
+    push_op!(push_char_op, char);
+    push_op!(push_short_op, i16);
+    push_op!(push_int_op, i32);
+    push_op!(push_float_op, f32);
 
     pub fn push_long_op(&mut self, value: i64) {
         self.push_op((value >> 32) as u32);
@@ -147,17 +146,9 @@ impl StackFrame {
         parts_to_double(self.pop_op(), self.pop_op())
     }
 
-    pub fn pop_ref_op<'a, 'b>(&'a mut self, heap: &'b Box<HeapSpace>) -> Reference<&'b Box<InstanceObject>> {
-        StackFrame::get_ref(self.pop_op(), |index| heap.get_ref(index))
-    }
-
-    pub fn pop_ref_array_op<'a, 'b>(&'a mut self, heap: &'b Box<HeapSpace>) -> Reference<&'b Box<ReferenceArrayObject>> {
-        StackFrame::get_ref(self.pop_op(), |index| heap.get_ref_array(index))
-    }
-
-    pub fn pop_type_array_op<'a, 'b>(&'a mut self, heap: &'b Box<HeapSpace>) -> Reference<&'b Box<TypeArrayObject>> {
-        StackFrame::get_ref(self.pop_op(), |index| heap.get_type_array(index))
-    }
+    pop_ref_op!(pop_ref_op, InstanceObject, get_ref);
+    pop_ref_op!(pop_ref_array_op, ReferenceArrayObject, get_ref_array);
+    pop_ref_op!(pop_type_array_op, TypeArrayObject, get_type_array);
 
     fn pop_op(&mut self) -> u32 {
         self.operand_stack.pop().expect("Nothing left to pop on the stack! If verification \

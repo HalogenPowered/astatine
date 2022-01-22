@@ -1,5 +1,16 @@
 use bytes::{Buf, Bytes};
 
+macro_rules! get_constant {
+    ($name:ident, $ty:ty, $constant_name:ident) => {
+        pub fn $name(&self, index: usize) -> Option<$ty> {
+            match self.get(index) {
+                Some(PoolConstant::$constant_name(value)) => Some(*value),
+                _ => None
+            }
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct ConstantPool {
     tags: Vec<u8>,
@@ -7,7 +18,7 @@ pub struct ConstantPool {
 }
 
 impl ConstantPool {
-    pub fn parse(buf: &mut Bytes) -> Self {
+    pub(crate) fn parse(buf: &mut Bytes) -> Self {
         let count = buf.get_u16();
         let mut tags = Vec::with_capacity(count as usize);
         let mut constants = Vec::with_capacity(count as usize);
@@ -18,6 +29,10 @@ impl ConstantPool {
         }
         // No funny business on my watch!
         assert_eq!(tags.len(), constants.len(), "Tags and constants size mismatch!");
+        ConstantPool::new(tags, constants)
+    }
+
+    pub const fn new(tags: Vec<u8>, constants: Vec<PoolConstant>) -> Self {
         ConstantPool { tags, constants }
     }
 
@@ -29,11 +44,11 @@ impl ConstantPool {
         index < self.tags.len()
     }
 
-    pub fn get_tag(&self, index: usize) -> Option<&u8> {
-        self.tags.get(index - 1)
+    pub fn get_tag(&self, index: usize) -> Option<u8> {
+        self.tags.get(index - 1).map(|value| *value)
     }
 
-    pub fn get(&self, index: usize) -> Option<&PoolConstant> {
+    fn get(&self, index: usize) -> Option<&PoolConstant> {
         self.constants.get(index - 1)
     }
 
@@ -49,33 +64,10 @@ impl ConstantPool {
         }
     }
 
-    pub fn get_int(&self, index: usize) -> Option<&i32> {
-        match self.get(index) {
-            Some(PoolConstant::Integer(value)) => Some(&value),
-            _ => None
-        }
-    }
-
-    pub fn get_float(&self, index: usize) -> Option<&f32> {
-        match self.get(index) {
-            Some(PoolConstant::Float(value)) => Some(value),
-            _ => None
-        }
-    }
-
-    pub fn get_long(&self, index: usize) -> Option<&i64> {
-        match self.get(index) {
-            Some(PoolConstant::Long(value)) => Some(value),
-            _ => None
-        }
-    }
-
-    pub fn get_double(&self, index: usize) -> Option<&f64> {
-        match self.get(index) {
-            Some(PoolConstant::Double(value)) => Some(value),
-            _ => None
-        }
-    }
+    get_constant!(get_int, i32, Integer);
+    get_constant!(get_float, f32, Float);
+    get_constant!(get_long, i64, Long);
+    get_constant!(get_double, f64, Double);
 
     pub fn resolve_class_name(&self, index: usize) -> Option<&String> {
         match self.get(index) {
@@ -134,14 +126,35 @@ impl PoolConstant {
             DOUBLE_TAG => PoolConstant::Double(buf.get_f64()),
             CLASS_TAG => PoolConstant::Class { name_index: buf.get_u16() },
             STRING_TAG => PoolConstant::String { value_index: buf.get_u16() },
-            FIELD_REF_TAG => PoolConstant::FieldRef { class_index: buf.get_u16(), name_and_type_index: buf.get_u16() },
-            METHOD_REF_TAG => PoolConstant::MethodRef { class_index: buf.get_u16(), name_and_type_index: buf.get_u16() },
-            INTERFACE_METHOD_REF_TAG => PoolConstant::InterfaceMethodRef { class_index: buf.get_u16(), name_and_type_index: buf.get_u16() },
-            NAME_AND_TYPE_TAG => PoolConstant::NameAndType { name_index: buf.get_u16(), descriptor_index: buf.get_u16() },
-            METHOD_HANDLE_TAG => PoolConstant::MethodHandle { reference_kind: buf.get_u8(), reference_index: buf.get_u16() },
+            FIELD_REF_TAG => PoolConstant::FieldRef {
+                class_index: buf.get_u16(),
+                name_and_type_index: buf.get_u16()
+            },
+            METHOD_REF_TAG => PoolConstant::MethodRef {
+                class_index: buf.get_u16(),
+                name_and_type_index: buf.get_u16()
+            },
+            INTERFACE_METHOD_REF_TAG => PoolConstant::InterfaceMethodRef {
+                class_index: buf.get_u16(),
+                name_and_type_index: buf.get_u16()
+            },
+            NAME_AND_TYPE_TAG => PoolConstant::NameAndType {
+                name_index: buf.get_u16(),
+                descriptor_index: buf.get_u16()
+            },
+            METHOD_HANDLE_TAG => PoolConstant::MethodHandle {
+                reference_kind: buf.get_u8(),
+                reference_index: buf.get_u16()
+            },
             METHOD_TYPE_TAG => PoolConstant::MethodType { descriptor_index: buf.get_u16() },
-            DYNAMIC_TAG => PoolConstant::Dynamic { bootstrap_method_attr_index: buf.get_u16(), name_and_type_index: buf.get_u16() },
-            INVOKE_DYNAMIC_TAG => PoolConstant::InvokeDynamic { bootstrap_method_attr_index: buf.get_u16(), name_and_type_index: buf.get_u16() },
+            DYNAMIC_TAG => PoolConstant::Dynamic {
+                bootstrap_method_attr_index: buf.get_u16(),
+                name_and_type_index: buf.get_u16()
+            },
+            INVOKE_DYNAMIC_TAG => PoolConstant::InvokeDynamic {
+                bootstrap_method_attr_index: buf.get_u16(),
+                name_and_type_index: buf.get_u16()
+            },
             MODULE_TAG => PoolConstant::Module { name_index: buf.get_u16() },
             PACKAGE_TAG => PoolConstant::Package { name_index: buf.get_u16() },
             _ => panic!("Invalid tag {} for constant pool entry!", tag)

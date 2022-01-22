@@ -1,7 +1,7 @@
-use bytes::{Buf, Bytes};
+use bytes::Buf;
+use super::stack_frame::StackFrame;
 use crate::class_file::class_loader::ClassLoader;
 use crate::class_file::code::CodeBlock;
-use crate::code::stack_frame::StackFrame;
 use crate::objects::heap::HeapSpace;
 use crate::objects::object::HeapObject;
 use crate::types::class::Class;
@@ -12,12 +12,12 @@ pub struct Interpreter {
 
 impl Interpreter {
     pub fn execute(context: InterpreterContext, code: &CodeBlock, parameters: &[u32]) {
-        let mut frame = StackFrame::new(code.max_stack, code.max_locals);
+        let mut frame = code.new_stack_frame();
         for parameter in parameters {
             frame.push_op(*parameter);
         }
 
-        let mut bytes = Bytes::copy_from_slice(code.code.as_slice());
+        let mut bytes = code.new_code_reader();
         while !bytes.is_empty() {
             let op = bytes.get_u8();
             match op {
@@ -81,7 +81,7 @@ impl Interpreter {
 pub struct InterpreterContext {
     pub heap: Box<HeapSpace>,
     pub loader: Box<ClassLoader>,
-    pub class: Box<Class>,
+    pub class: Box<Class>
 }
 
 const AALOAD: u8 = 0x32;
@@ -93,5 +93,8 @@ const ALOAD_3: u8 = 0x2D;
 //const ANEWARRAY: u8 = 0xBD;
 
 fn aload_index(op: u8) -> u8 {
+    if op > ALOAD_3 {
+        panic!("aload_index called with op higher than ALOAD_3! Op was {}!", op);
+    }
     op - ALOAD_0
 }

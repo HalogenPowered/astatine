@@ -1,5 +1,5 @@
 use std::io;
-use crate::class_file::class_reader::parse_class;
+use crate::types::class::Class;
 
 pub mod class_file;
 pub mod types;
@@ -12,6 +12,6 @@ fn main() {
     io::stdin().read_line(&mut buffer).expect("Expected input!");
     let input = buffer.trim_end();
     println!("{}", input);
-    let class = parse_class(&input);
-    println!("{:?}", class);
+    let class = Class::parse(&input);
+    println!("{:#?}", class);
 }
