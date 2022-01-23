@@ -3,7 +3,7 @@ use crate::objects::object::*;
 use crate::objects::reference::Reference;
 use crate::utils::vm_types::ReturnAddress;
 
-macro_rules! get_ref {
+macro_rules! get_set_ref {
     ($name:ident, $ty:ty, $getter_name: ident) => {
         pub fn $name<'a, 'b>(&'a self, index: usize, heap: &'b Box<HeapSpace>) -> Reference<&'b Box<$ty>> {
             StackFrame::get_ref(self.get_local(index), |index| heap.$getter_name(index))
@@ -19,10 +19,15 @@ macro_rules! pop_ref_op {
     }
 }
 
-macro_rules! push_op {
+macro_rules! set_local_push_op {
     ($name:ident, $ty:ty) => {
         pub fn $name(&mut self, value: $ty) {
             self.push_op(value as u32)
+        }
+    };
+    ($name:ident, $ty:ty, $a:literal) => {
+        pub fn $name(&mut self, index: usize, value: $ty) {
+            self.set_local(index, value as u32);
         }
     }
 }
@@ -72,9 +77,9 @@ impl StackFrame {
         parts_to_double(self.get_local(index), self.get_local(index + 1))
     }
 
-    get_ref!(get_local_ref, InstanceObject, get_ref);
-    get_ref!(get_local_ref_array, ReferenceArrayObject, get_ref_array);
-    get_ref!(get_local_type_array, TypeArrayObject, get_type_array);
+    get_set_ref!(get_local_ref, InstanceObject, get_ref);
+    get_set_ref!(get_local_ref_array, ReferenceArrayObject, get_ref_array);
+    get_set_ref!(get_local_type_array, TypeArrayObject, get_type_array);
 
     pub fn get_local_return_address(&self, index: usize) -> Option<ReturnAddress> {
         self.local_variables.get(index).map(|value| *value)
@@ -84,12 +89,38 @@ impl StackFrame {
         *self.local_variables.get(index).expect(&format!("Invalid local variable index {}!", index))
     }
 
-    push_op!(push_bool_op, bool);
-    push_op!(push_byte_op, i8);
-    push_op!(push_char_op, char);
-    push_op!(push_short_op, i16);
-    push_op!(push_int_op, i32);
-    push_op!(push_float_op, f32);
+    set_local_push_op!(set_local_bool, bool, 0);
+    set_local_push_op!(set_local_byte, i8, 0);
+    set_local_push_op!(set_local_char, char, 0);
+    set_local_push_op!(set_local_short, i16, 0);
+    set_local_push_op!(set_local_int, i32, 0);
+    set_local_push_op!(set_local_float, f32, 0);
+
+    pub fn set_local_long(&mut self, index: usize, value: i64) {
+        self.set_local(index, (value >> 32) as u32);
+        self.set_local(index, value as u32);
+    }
+
+    pub fn set_local_double(&mut self, index: usize, value: f64) {
+        let bits = value.to_bits();
+        self.set_local(index, (bits >> 32) as u32);
+        self.set_local(index, bits as u32);
+    }
+
+    pub fn set_local_ref(&mut self, index: usize, value: u32) {
+        self.set_local(index, value);
+    }
+
+    fn set_local(&mut self, index: usize, value: u32) {
+        self.local_variables.insert(index, value);
+    }
+
+    set_local_push_op!(push_bool_op, bool);
+    set_local_push_op!(push_byte_op, i8);
+    set_local_push_op!(push_char_op, char);
+    set_local_push_op!(push_short_op, i16);
+    set_local_push_op!(push_int_op, i32);
+    set_local_push_op!(push_float_op, f32);
 
     pub fn push_long_op(&mut self, value: i64) {
         self.push_op((value >> 32) as u32);

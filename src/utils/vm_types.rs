@@ -1,3 +1,5 @@
+use std::fmt::{Display, Formatter};
+
 pub type ReturnAddress = u32;
 
 pub const T_BOOLEAN: u8 = 4;
@@ -20,4 +22,10 @@ pub enum ArrayType {
     Short = T_SHORT,
     Int = T_INT,
     Long = T_LONG
+}
+
+impl Display for ArrayType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
 }

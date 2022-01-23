@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use crate::types::class::Class;
 
 pub struct ClassLoader {
-    classes: HashMap<String, Box<Class>>
+    classes: HashMap<String, Class>
 }
 
 impl ClassLoader {
@@ -10,7 +10,7 @@ impl ClassLoader {
         ClassLoader { classes: HashMap::new() }
     }
 
-    pub fn load_class(&mut self, name: &str) -> &Box<Class> {
-        self.classes.entry(String::from(name)).or_insert_with(|| Box::new(Class::parse(name)))
+    pub fn load_class(&mut self, name: &str) -> &Class {
+        self.classes.entry(String::from(name)).or_insert_with(|| Class::parse(name))
     }
 }

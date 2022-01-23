@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use bytes::{Buf, Bytes};
 use java_desc::FieldType;
+use crate::Class;
+use crate::class_file::class_loader::ClassLoader;
 use super::attribute_tags::*;
 use super::stack_map_table::*;
 use crate::code::stack_frame::StackFrame;
@@ -107,8 +109,14 @@ pub struct ExceptionHandlerTable {
 }
 
 impl ExceptionHandlerTable {
-    pub(crate) fn parse(buf: &mut Bytes) -> Self {
-        ExceptionHandlerTable::new(buf.get_generic_u16_array(|buf| ExceptionHandlerBlock::parse(buf)))
+    pub(crate) fn parse(
+        loader: &mut ClassLoader,
+        class_file_name: &str,
+        pool: &ConstantPool,
+        buf: &mut Bytes
+    ) -> Self {
+        ExceptionHandlerTable::new(buf.get_generic_u16_array(
+            |buf| ExceptionHandlerBlock::parse(loader, class_file_name, pool, buf)))
     }
 
     pub const fn new(handlers: Vec<ExceptionHandlerBlock>) -> Self {
@@ -118,6 +126,15 @@ impl ExceptionHandlerTable {
     pub fn get(&self, index: usize) -> Option<&ExceptionHandlerBlock> {
         self.handlers.get(index)
     }
+
+    pub fn get_handler(&self, exception: &Class) -> Option<&ExceptionHandlerBlock> {
+        for element in self.handlers {
+            if element.catch_type == exception {
+                return Some(&element);
+            }
+        }
+        None
+    }
 }
 
 #[derive(Debug)]
@@ -125,16 +142,30 @@ pub struct ExceptionHandlerBlock {
     start_pc: u16,
     end_pc: u16,
     handler_pc: u16,
-    catch_type: u16
+    catch_type: *const Class
 }
 
 impl ExceptionHandlerBlock {
-    pub(crate) fn parse(buf: &mut Bytes) -> Self {
-        ExceptionHandlerBlock::new(buf.get_u16(), buf.get_u16(), buf.get_u16(), buf.get_u16())
+    pub(crate) fn parse(
+        loader: &mut ClassLoader,
+        class_file_name: &str,
+        pool: &ConstantPool,
+        buf: &mut Bytes
+    ) -> Self {
+        let start_pc = buf.get_u16();
+        let end_pc = buf.get_u16();
+        let handler_pc = buf.get_u16();
+        let catch_type_index = buf.get_u16();
+        let catch_type_name = pool.resolve_class_name(catch_type_index as usize)
+            .expect(&format!("Invalid catch type for class file {}! Expected index {} to be in \
+                constant pool!", class_file_name, catch_type_index))
+            .as_str();
+        let catch_type = loader.load_class(catch_type_name);
+        ExceptionHandlerBlock::new(start_pc, end_pc, handler_pc, catch_type)
     }
 
-    pub const fn new(start_pc: u16, end_pc: u16, handler_pc: u16, catch_type: u16) -> Self {
-        ExceptionHandlerBlock { start_pc, end_pc, handler_pc, catch_type }
+    pub const fn new(start_pc: u16, end_pc: u16, handler_pc: u16, catch_type: &Class) -> Self {
+        ExceptionHandlerBlock { start_pc, end_pc, handler_pc, catch_type: catch_type as *const Class }
     }
 
     pub fn start_pc(&self) -> u16 {
@@ -149,8 +180,8 @@ impl ExceptionHandlerBlock {
         self.handler_pc
     }
 
-    pub fn catch_type(&self) -> u16 {
-        self.catch_type
+    pub fn catch_type(&self) -> &Class {
+        unsafe { self.catch_type.as_ref().unwrap() }
     }
 }
 
