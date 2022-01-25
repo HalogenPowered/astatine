@@ -139,6 +139,10 @@ impl StackFrame {
         self.operand_stack.push(value);
     }
 
+    pub fn set_op(&mut self, offset: usize, value: u32) {
+        self.operand_stack.insert(self.operand_stack.len() - 1 - offset, value)
+    }
+
     pub fn pop_bool_op(&mut self) -> bool {
         self.pop_op() != 0
     }
@@ -171,9 +175,22 @@ impl StackFrame {
         parts_to_double(self.pop_op(), self.pop_op())
     }
 
-    fn pop_op(&mut self) -> u32 {
+    pub fn pop_op(&mut self) -> u32 {
         self.operand_stack.pop().expect("Nothing left to pop on the stack! If verification \
             succeeded, this should be impossible!")
+    }
+
+    pub fn peek_op(&self) -> u32 {
+        *self.operand_stack.last().expect("Nothing left to pop on the stack! If verification \
+            succeeded, this should be impossible!")
+    }
+
+    pub fn get_op(&self, offset: usize) -> u32 {
+        if offset == 0 {
+            return self.peek_op();
+        }
+        *self.operand_stack.get(self.operand_stack.len() - 1 - offset)
+            .expect(&format!("Could not pop element at offset {} from end of stack!", offset))
     }
 
     fn get_ref<T, F>(offset: u32, f: F) -> Reference<T> where F : Fn(usize) -> Reference<T> {

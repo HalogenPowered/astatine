@@ -93,7 +93,15 @@ impl Interpreter {
                 BASTORE => Interpreter::store_array_byte(&context, &mut frame),
                 CASTORE => Interpreter::store_array_char(&context, &mut frame),
                 SASTORE => Interpreter::store_array_short(&context, &mut frame),
-                // TODO: POP, POP2, DUP, DUP_X1, DUP_X2, DUP2, DUP2_X1, DUP2_X2, SWAP
+                POP => Interpreter::pop(&mut frame, false),
+                POP2 => Interpreter::pop(&mut frame, true),
+                DUP => Interpreter::dup(&mut frame),
+                DUP_X1 => Interpreter::dup_x1(&mut frame),
+                DUP_X2 => Interpreter::dup_x2(&mut frame),
+                DUP2 => Interpreter::dup2(&mut frame),
+                DUP2_X1 => Interpreter::dup2_x1(&mut frame),
+                DUP2_X2 => Interpreter::dup2_x2(&mut frame),
+                SWAP => Interpreter::swap(&mut frame),
                 IADD => jvm_int_add(&mut frame),
                 LADD => jvm_long_add(&mut frame),
                 FADD => jvm_float_add(&mut frame),
@@ -304,6 +312,75 @@ impl Interpreter {
                 instruction, expected_type, array_type)
         })
     }
+
+    fn pop(frame: &mut StackFrame, double: bool) {
+        frame.pop_op();
+        if double {
+            frame.pop_op();
+        }
+    }
+
+    fn dup(frame: &mut StackFrame) {
+        let value = frame.get_op(0);
+        frame.push_op(value);
+    }
+
+    fn dup_x1(frame: &mut StackFrame) {
+        let first = frame.get_op(0);
+        let second = frame.get_op(1);
+        frame.set_op(1, first);
+        frame.set_op(0, second);
+        frame.push_op(first);
+    }
+
+    fn dup_x2(frame: &mut StackFrame) {
+        let first = frame.get_op(0);
+        let third = frame.get_op(2);
+        frame.set_op(2, first);
+        frame.push_op(first);
+        let second = frame.get_op(2);
+        frame.set_op(2, third);
+        frame.set_op(1, second);
+    }
+
+    fn dup2(frame: &mut StackFrame) {
+        let high = frame.get_op(1);
+        frame.push_op(high);
+        let low = frame.get_op(1);
+        frame.push_op(low);
+    }
+
+    fn dup2_x1(frame: &mut StackFrame) {
+        let first = frame.get_op(0);
+        let second = frame.get_op(1);
+        frame.push_op(second);
+        frame.push_op(first);
+        frame.set_op(3, first);
+        let third = frame.get_op(4);
+        frame.set_op(2, third);
+        frame.set_op(4, second);
+    }
+
+    fn dup2_x2(frame: &mut StackFrame) {
+        let first = frame.get_op(0);
+        let second = frame.get_op(1);
+        frame.push_op(second);
+        frame.push_op(first);
+        let third = frame.get_op(4);
+        frame.set_op(2, third);
+        frame.set_op(4, first);
+        let fourth = frame.get_op(5);
+        let fifth = frame.get_op(3);
+        frame.set_op(3, fourth);
+        frame.set_op(5, fifth);
+    }
+
+    fn swap(frame: &mut StackFrame) {
+        let first = frame.get_op(1);
+        let second = frame.get_op(0);
+        frame.set_op(0, first);
+        frame.set_op(1, second);
+    }
 }
 
 struct CodeParser<'a> {
@@ -409,15 +486,15 @@ const AASTORE: u8 = 83;
 const BASTORE: u8 = 84;
 const CASTORE: u8 = 85;
 const SASTORE: u8 = 86;
-//const POP: u8 = 87;
-//const POP2: u8 = 88;
-//const DUP: u8 = 89;
-//const DUP_X1: u8 = 90;
-//const DUP_X2: u8 = 91;
-//const DUP2: u8 = 92;
-//const DUP2_X1: u8 = 93;
-//const DUP2_X2: u8 = 94;
-//const SWAP: u8 = 95;
+const POP: u8 = 87;
+const POP2: u8 = 88;
+const DUP: u8 = 89;
+const DUP_X1: u8 = 90;
+const DUP_X2: u8 = 91;
+const DUP2: u8 = 92;
+const DUP2_X1: u8 = 93;
+const DUP2_X2: u8 = 94;
+const SWAP: u8 = 95;
 const IADD: u8 = 96;
 const LADD: u8 = 97;
 const FADD: u8 = 98;
