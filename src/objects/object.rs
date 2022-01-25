@@ -97,7 +97,7 @@ macro_rules! impl_getter_setter {
 
 macro_rules! impl_heap_object {
     ($T:ident) => {
-        impl HeapObject for $T<'_> {
+        impl HeapObject for $T {
             fn offset(&self) -> usize {
                 self.offset
             }
@@ -109,16 +109,14 @@ macro_rules! impl_heap_object {
     }
 }
 
-const EMPTY_U32_ARRAY: [u32; 0] = [];
-
-pub struct InstanceObject<'a> {
+pub struct InstanceObject {
     offset: usize,
-    class: &'a Class<'a>,
+    class: Rc<Class>,
     fields: RefCell<Vec<u32>>
 }
 
-impl<'a> InstanceObject<'a> {
-    pub fn new(offset: usize, class: &'a Class<'a>, field_count: usize) -> Self {
+impl InstanceObject {
+    pub fn new(offset: usize, class: Rc<Class>, field_count: usize) -> Self {
         InstanceObject {
             offset,
             class,
@@ -131,18 +129,18 @@ impl<'a> InstanceObject<'a> {
 
 impl_heap_object!(InstanceObject);
 
-pub struct ReferenceArrayObject<'a> {
+pub struct ReferenceArrayObject {
     offset: usize,
-    class: &'a Class<'a>,
-    element_class: &'a Class<'a>,
-    elements: RefCell<Vec<Rc<InstanceObject<'a>>>>
+    class: Rc<Class>,
+    element_class: Rc<Class>,
+    elements: RefCell<Vec<Rc<InstanceObject>>>
 }
 
-impl<'a> ReferenceArrayObject<'a> {
+impl ReferenceArrayObject {
     pub fn new(
         offset: usize,
-        class: &'a Class<'a>,
-        element_class: &'a Class<'a>,
+        class: Rc<Class>,
+        element_class: Rc<Class>,
         size: usize
     ) -> Self {
         ReferenceArrayObject {
@@ -166,24 +164,24 @@ impl<'a> ReferenceArrayObject<'a> {
     }
 
     #[allow(unused_must_use)]
-    pub fn set(&self, index: usize, value: Rc<InstanceObject<'a>>) {
+    pub fn set(&self, index: usize, value: Rc<InstanceObject>) {
         self.elements.borrow_mut().insert(index, value);
     }
 }
 
 impl_heap_object!(ReferenceArrayObject);
 
-pub struct TypeArrayObject<'a> {
+pub struct TypeArrayObject {
     offset: usize,
-    class: &'a Class<'a>,
+    class: Rc<Class>,
     array_type: ArrayType,
     elements: RefCell<Vec<u32>>
 }
 
-impl<'a> TypeArrayObject<'a> {
+impl TypeArrayObject {
     pub fn new(
         offset: usize,
-        class: &'a Class,
+        class: Rc<Class>,
         array_type: ArrayType,
         size: usize
     ) -> Self {

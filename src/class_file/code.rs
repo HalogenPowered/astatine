@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::rc::Rc;
 use bytes::{Buf, Bytes};
 use java_desc::FieldType;
 use crate::Class;
@@ -11,20 +12,20 @@ use crate::types::utils::{FieldTyped, Nameable};
 use crate::utils::buffer::BufferExtras;
 
 #[derive(Debug)]
-pub struct CodeBlock<'a> {
+pub struct CodeBlock {
     max_stack: u16,
     max_locals: u16,
     code: Vec<u8>,
-    exception_handlers: ExceptionHandlerTable<'a>,
+    exception_handlers: ExceptionHandlerTable,
     line_numbers: Option<HashMap<u16, u16>>,
     local_variables: Option<LocalVariableTable>,
     local_variable_types: Option<LocalVariableTable>,
     stack_map_table: Option<StackMapTable>
 }
 
-impl<'a> CodeBlock<'a> {
+impl CodeBlock {
     pub(crate) fn parse(
-        loader: &'a mut ClassLoader<'a>,
+        loader: &ClassLoader,
         class_file_name: &str,
         pool: &ConstantPool,
         buf: &mut Bytes
@@ -53,7 +54,7 @@ impl<'a> CodeBlock<'a> {
         max_stack: u16,
         max_locals: u16,
         code: Vec<u8>,
-        exception_handlers: ExceptionHandlerTable<'a>,
+        exception_handlers: ExceptionHandlerTable,
         line_numbers: Option<HashMap<u16, u16>>,
         local_variables: Option<LocalVariableTable>,
         local_variable_types: Option<LocalVariableTable>,
@@ -109,13 +110,13 @@ impl<'a> CodeBlock<'a> {
 }
 
 #[derive(Debug)]
-pub struct ExceptionHandlerTable<'a> {
-    handlers: Vec<ExceptionHandlerBlock<'a>>
+pub struct ExceptionHandlerTable {
+    handlers: Vec<ExceptionHandlerBlock>
 }
 
-impl<'a> ExceptionHandlerTable<'a> {
+impl ExceptionHandlerTable {
     pub(crate) fn parse(
-        loader: &'a mut ClassLoader<'a>,
+        loader: &ClassLoader,
         class_file_name: &str,
         pool: &ConstantPool,
         buf: &mut Bytes
@@ -128,7 +129,7 @@ impl<'a> ExceptionHandlerTable<'a> {
         ExceptionHandlerTable::new(handlers)
     }
 
-    pub const fn new(handlers: Vec<ExceptionHandlerBlock<'a>>) -> Self {
+    pub const fn new(handlers: Vec<ExceptionHandlerBlock>) -> Self {
         ExceptionHandlerTable { handlers }
     }
 
@@ -136,9 +137,9 @@ impl<'a> ExceptionHandlerTable<'a> {
         self.handlers.get(index)
     }
 
-    pub fn get_handler(&self, exception: &Class) -> Option<&ExceptionHandlerBlock<'a>> {
+    pub fn get_handler(&self, exception: &Class) -> Option<&ExceptionHandlerBlock> {
         for element in &self.handlers {
-            if element.catch_type as *const Class == exception as *const Class {
+            if element.catch_type.as_ref() as *const Class == exception as *const Class {
                 return Some(element);
             }
         }
@@ -147,16 +148,16 @@ impl<'a> ExceptionHandlerTable<'a> {
 }
 
 #[derive(Debug)]
-pub struct ExceptionHandlerBlock<'a> {
+pub struct ExceptionHandlerBlock {
     start_pc: u16,
     end_pc: u16,
     handler_pc: u16,
-    catch_type: &'a Class<'a>
+    catch_type: Rc<Class>
 }
 
-impl<'a> ExceptionHandlerBlock<'a> {
+impl ExceptionHandlerBlock {
     pub(crate) fn parse(
-        loader: &'a mut ClassLoader<'a>,
+        loader: &ClassLoader,
         class_file_name: &str,
         pool: &ConstantPool,
         buf: &mut Bytes
@@ -173,7 +174,7 @@ impl<'a> ExceptionHandlerBlock<'a> {
         ExceptionHandlerBlock { start_pc, end_pc, handler_pc, catch_type }
     }
 
-    pub const fn new(start_pc: u16, end_pc: u16, handler_pc: u16, catch_type: &'a Class<'a>) -> Self {
+    pub const fn new(start_pc: u16, end_pc: u16, handler_pc: u16, catch_type: Rc<Class>) -> Self {
         ExceptionHandlerBlock { start_pc, end_pc, handler_pc, catch_type }
     }
 

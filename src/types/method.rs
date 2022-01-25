@@ -11,13 +11,13 @@ use crate::ClassLoader;
 use crate::utils::constants::*;
 
 #[derive(Debug)]
-pub struct Method<'a> {
+pub struct Method {
     name: String,
     descriptor: MethodType,
     generic_signature: Option<String>,
     access_flags: u16,
     parameters: Vec<MethodParameter>,
-    code: Option<CodeBlock<'a>>,
+    code: Option<CodeBlock>,
     checked_exception_indices: Vec<u16>,
     other_flags: u8
 }
@@ -27,9 +27,9 @@ pub struct Method<'a> {
 pub const METHOD_IS_CONSTRUCTOR: u8 = 0x01;
 pub const METHOD_IS_STATIC_INITIALIZER: u8 = 0x02;
 
-impl<'a> Method<'a> {
+impl Method {
     pub(crate) fn parse(
-        loader: &'a mut ClassLoader<'a>,
+        loader: &ClassLoader,
         class_file_name: &str,
         pool: &ConstantPool,
         buf: &mut Bytes,
@@ -96,7 +96,7 @@ impl<'a> Method<'a> {
         generic_signature: Option<&str>,
         access_flags: u16,
         parameters: Vec<MethodParameter>,
-        code: Option<CodeBlock<'a>>,
+        code: Option<CodeBlock>,
         checked_exception_indices: Vec<u16>,
         other_flags: u8
     ) -> Self {
@@ -149,20 +149,20 @@ impl<'a> Method<'a> {
     }
 }
 
-impl_nameable!(Method, '_);
-impl_generic!(Method, '_);
+impl_nameable!(Method);
+impl_generic!(Method);
 
-impl MethodTyped for Method<'_> {
+impl MethodTyped for Method {
     fn descriptor(&self) -> &MethodType {
         &self.descriptor
     }
 }
 
-impl_accessible!(Method, '_);
-impl_accessible!(Method, FinalAccessible, '_);
-impl_accessible!(Method, PublicAccessible, '_);
-impl_accessible!(Method, AbstractAccessible, '_);
-impl_accessible!(Method, PrivateProtectedStaticAccessible, '_);
+impl_accessible!(Method);
+impl_accessible!(Method, FinalAccessible);
+impl_accessible!(Method, PublicAccessible);
+impl_accessible!(Method, AbstractAccessible);
+impl_accessible!(Method, PrivateProtectedStaticAccessible);
 
 #[derive(Debug)]
 pub struct MethodParameter {
@@ -195,15 +195,15 @@ impl_accessible!(MethodParameter);
 impl_accessible!(MethodParameter, FinalAccessible);
 impl_accessible!(MethodParameter, MandatedAccessible);
 
-fn parse_attributes<'a>(
-    loader: &'a mut ClassLoader<'a>,
+fn parse_attributes(
+    loader: &ClassLoader,
     class_file_name: &str,
     pool: &ConstantPool,
     buf: &mut Bytes,
     version: &ClassFileVersion,
     access_flags: u16,
     mut attribute_count: u16
-) -> (Option<CodeBlock<'a>>, Vec<u16>, Vec<MethodParameter>, Option<String>) {
+) -> (Option<CodeBlock>, Vec<u16>, Vec<MethodParameter>, Option<String>) {
     let mut code = None;
     let mut checked_exception_indices = Vec::new();
     let mut parameters = Vec::new();

@@ -1,4 +1,5 @@
 use bytes::{Buf, Bytes};
+use std::rc::Rc;
 use std::fs;
 use super::access_flags::*;
 use super::constant_pool::ConstantPool;
@@ -12,15 +13,15 @@ use crate::utils::buffer::BufferExtras;
 use crate::utils::constants::JAVA_LANG_OBJECT_NAME;
 
 #[derive(Debug)]
-pub struct Class<'a> {
+pub struct Class {
     version: ClassFileVersion,
     access_flags: u16,
     constant_pool: ConstantPool,
     name: String,
-    super_class: Option<&'a Class<'a>>,
+    super_class: Option<Rc<Class>>,
     interfaces: Vec<u16>,
     fields: Vec<Field>,
-    methods: Vec<Method<'a>>,
+    methods: Vec<Method>,
     source_file_name: Option<String>,
     inner_classes: Vec<InnerClassInfo>,
     record_components: Vec<RecordComponent>,
@@ -29,8 +30,8 @@ pub struct Class<'a> {
 
 const MAGIC_CLASS_FILE_VERSION: u32 = 0xCAFEBABE;
 
-impl<'a> Class<'a> {
-    pub(crate) fn parse(loader: &'a mut ClassLoader<'a>, file_name: &str) -> Self {
+impl Class {
+    pub(crate) fn parse(loader: &ClassLoader, file_name: &str) -> Self {
         let contents = fs::read(file_name)
             .expect(&format!("Class file name {} could not be read!", file_name));
         let mut buf = Bytes::from(contents);
@@ -99,10 +100,10 @@ impl<'a> Class<'a> {
         access_flags: u16,
         constant_pool: ConstantPool,
         name: &str,
-        super_class: Option<&'a Class<'a>>,
+        super_class: Option<Rc<Class>>,
         interfaces: Vec<u16>,
         fields: Vec<Field>,
-        methods: Vec<Method<'a>>,
+        methods: Vec<Method>,
         source_file_name: Option<&str>,
         inner_classes: Vec<InnerClassInfo>,
         record_components: Vec<RecordComponent>
@@ -139,8 +140,8 @@ impl<'a> Class<'a> {
         &self.constant_pool
     }
 
-    pub fn super_class(&self) -> Option<&Class> {
-        self.super_class
+    pub fn super_class(&self) -> Option<Rc<Class>> {
+        self.super_class.as_ref().map(|value| Rc::clone(value))
     }
 
     pub fn fields(&self) -> &[Field] {
@@ -171,14 +172,14 @@ impl<'a> Class<'a> {
         self.access_flags & ACC_MODULE != 0
     }
 
-    pub fn is_subclass(&self, other: &Class) -> bool {
-        if self as *const Class == other as *const Class {
+    pub fn is_subclass(&self, other: Rc<Class>) -> bool {
+        if self as *const Class == other.as_ref() as *const Class {
             return true;
         }
         let mut super_class = self.super_class();
         while super_class.is_some() {
             let class = super_class.unwrap();
-            if class as *const Class == other as *const Class {
+            if class.as_ref() as *const Class == other.as_ref() as *const Class {
                 return true;
             }
             super_class = class.super_class();
@@ -187,14 +188,14 @@ impl<'a> Class<'a> {
     }
 }
 
-fn resolve_superclass<'a>(
-    loader: &'a mut ClassLoader<'a>,
+fn resolve_superclass(
+    loader: &ClassLoader,
     class_file_name: &str,
     name: &str,
     pool: &ConstantPool,
     index: u16,
     flags: u16
-) -> Option<&'a Class<'a>> {
+) -> Option<Rc<Class>> {
     assert!(flags & ACC_INTERFACE == 0 || index != 0, "Invalid class file {}! Interfaces must \
         always have an explicit superclass!", class_file_name);
     if index == 0 {
@@ -209,13 +210,13 @@ fn resolve_superclass<'a>(
     Some(loader.load_class(class_name))
 }
 
-impl_nameable!(Class, '_);
-impl_accessible!(Class, '_);
-impl_accessible!(Class, FinalAccessible, '_);
-impl_accessible!(Class, PublicAccessible, '_);
-impl_accessible!(Class, AbstractAccessible, '_);
-impl_accessible!(Class, EnumAccessible, '_);
-impl_accessible!(Class, InterfaceAnnotationAccessible, '_);
+impl_nameable!(Class);
+impl_accessible!(Class);
+impl_accessible!(Class, FinalAccessible);
+impl_accessible!(Class, PublicAccessible);
+impl_accessible!(Class, AbstractAccessible);
+impl_accessible!(Class, EnumAccessible);
+impl_accessible!(Class, InterfaceAnnotationAccessible);
 
 #[derive(Debug)]
 pub struct InnerClassInfo {
