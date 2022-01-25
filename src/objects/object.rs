@@ -1,4 +1,5 @@
-use std::sync::RwLock;
+use std::cell::RefCell;
+use std::rc::Rc;
 use crate::types::class::Class;
 use crate::utils::vm_types::ArrayType;
 
@@ -13,40 +14,40 @@ pub trait HeapObject {
 macro_rules! impl_getter_setter {
     ($field_name:ident) => {
         pub fn get_bool(&self, index: usize) -> bool {
-            self.get(index).map_or(false, |value| *value != 0)
+            self.get(index) != 0
         }
 
         pub fn get_byte(&self, index: usize) -> i8 {
-            self.get(index).map_or(0, |value| (*value & 255) as i8)
+            self.get(index) as i8
         }
 
         pub fn get_char(&self, index: usize) -> char {
-            self.get(index).and_then(|value| char::from_u32(*value))
+            char::from_u32(self.get(index))
                 .expect(&format!("Invalid character at index {}!", index))
         }
 
         pub fn get_short(&self, index: usize) -> i16 {
-            self.get(index).map_or(0, |value| (*value & 65535) as i16)
+            self.get(index) as i16
         }
 
         pub fn get_int(&self, index: usize) -> i32 {
-            self.get(index).map_or(0, |value| *value as i32)
+            self.get(index) as i32
         }
 
         pub fn get_float(&self, index: usize) -> f32 {
-            self.get(index).map_or(0, |value| f32::from_bits(*value))
+            f32::from_bits(self.get(index))
         }
 
         pub fn get_long(&self, index: usize) -> i64 {
-            let most = self.get(index)?;
-            let least = self.get(index + 1)?;
-            (((*most as u64) << 32) | (*least as u64)) as i64
+            let most = self.get(index) as u64;
+            let least = self.get(index + 1) as u64;
+            ((most << 32) | least) as i64
         }
 
         pub fn get_double(&self, index: usize) -> f64 {
-            let most = self.get(index)?;
-            let least = self.get(index + 1)?;
-            f64::from_bits(((*most as u64) << 32) | (*least as u64))
+            let most = self.get(index) as u64;
+            let least = self.get(index + 1) as u64;
+            f64::from_bits((most << 32) | least)
         }
 
         pub fn put_bool(&self, index: usize, value: bool) {
@@ -84,47 +85,45 @@ macro_rules! impl_getter_setter {
             self.put(index + 1, bits as u32);
         }
 
-        fn get(&self, index: usize) -> Option<&u32> {
-            self.$field_name.read().ok().and_then(|read| read.get(index))
+        fn get(&self, index: usize) -> u32 {
+            self.$field_name.borrow().get(index).map_or(0, |value| *value)
         }
 
         fn put(&self, index: usize, value: u32) {
-            self.$field_name.write().map(|mut vector| vector.insert(index, value));
+            self.$field_name.borrow_mut().insert(index, value);
         }
     }
 }
 
 macro_rules! impl_heap_object {
     ($T:ident) => {
-        impl HeapObject for $T {
+        impl HeapObject for $T<'_> {
             fn offset(&self) -> usize {
                 self.offset
             }
 
             fn class(&self) -> &Class {
-                unsafe { self.class.as_ref().unwrap() }
+                &self.class
             }
         }
     }
 }
 
-pub struct InstanceObject {
+const EMPTY_U32_ARRAY: [u32; 0] = [];
+
+pub struct InstanceObject<'a> {
     offset: usize,
-    class: *const Class,
-    fields: RwLock<Vec<u32>>
+    class: &'a Class<'a>,
+    fields: RefCell<Vec<u32>>
 }
 
-impl InstanceObject {
-    pub fn new(offset: usize, class: &Class, field_count: usize) -> InstanceObject {
+impl<'a> InstanceObject<'a> {
+    pub fn new(offset: usize, class: &'a Class<'a>, field_count: usize) -> Self {
         InstanceObject {
             offset,
-            class: class as *const Class,
-            fields: RwLock::new(Vec::with_capacity(field_count))
+            class,
+            fields: RefCell::new(Vec::with_capacity(field_count))
         }
-    }
-
-    pub fn fields(&self) -> Option<&[u32]> {
-        self.fields.read().ok().map(|vector| vector.as_slice())
     }
 
     impl_getter_setter!(fields);
@@ -132,80 +131,71 @@ impl InstanceObject {
 
 impl_heap_object!(InstanceObject);
 
-pub struct ReferenceArrayObject {
+pub struct ReferenceArrayObject<'a> {
     offset: usize,
-    class: *const Class,
-    element_class: *const Class,
-    elements: RwLock<Vec<*const Box<InstanceObject>>>
+    class: &'a Class<'a>,
+    element_class: &'a Class<'a>,
+    elements: RefCell<Vec<Rc<InstanceObject<'a>>>>
 }
 
-impl ReferenceArrayObject {
+impl<'a> ReferenceArrayObject<'a> {
     pub fn new(
         offset: usize,
-        class: &Class,
-        element_class: &Class,
+        class: &'a Class<'a>,
+        element_class: &'a Class<'a>,
         size: usize
-    ) -> ReferenceArrayObject {
+    ) -> Self {
         ReferenceArrayObject {
             offset,
-            class: class as *const Class,
-            element_class: element_class as *const Class,
-            elements: RwLock::new(Vec::with_capacity(size))
+            class,
+            element_class,
+            elements: RefCell::new(Vec::with_capacity(size))
         }
     }
 
     pub fn element_class(&self) -> &Class {
-        unsafe { self.element_class.as_ref().unwrap() }
+        &self.element_class
     }
 
     pub fn len(&self) -> usize {
-        self.elements.read().map_or(0, |vector| vector.len())
+        self.elements.borrow().len()
     }
 
-    pub fn get(&self, index: usize) -> Option<&Box<InstanceObject>> {
-        unsafe {
-            self.elements
-                .read()
-                .ok()
-                .and_then(|vector| vector.get(index).and_then(|value| value.as_ref()))
-        }
+    pub fn get(&self, index: usize) -> Option<Rc<InstanceObject>> {
+        self.elements.borrow().get(index).map(|value| Rc::clone(value))
     }
 
     #[allow(unused_must_use)]
-    pub fn set(&self, index: usize, value: &Box<InstanceObject>) {
-        self.elements.write().map(|mut vector| vector.insert(index, value));
+    pub fn set(&self, index: usize, value: Rc<InstanceObject<'a>>) {
+        self.elements.borrow_mut().insert(index, value);
     }
 }
 
 impl_heap_object!(ReferenceArrayObject);
 
-pub struct TypeArrayObject {
+pub struct TypeArrayObject<'a> {
     offset: usize,
-    class: *const Class,
+    class: &'a Class<'a>,
     array_type: ArrayType,
-    elements: RwLock<Vec<u32>>
+    elements: RefCell<Vec<u32>>
 }
 
-impl TypeArrayObject {
+impl<'a> TypeArrayObject<'a> {
     pub fn new(
         offset: usize,
-        class: &Class,
+        class: &'a Class,
         array_type: ArrayType,
         size: usize
-    ) -> TypeArrayObject {
-        TypeArrayObject { offset, class, array_type, elements: RwLock::new(Vec::with_capacity(size)) }
+    ) -> Self {
+        TypeArrayObject { offset, class, array_type, elements: RefCell::new(Vec::with_capacity(size)) }
     }
 
     pub fn array_type(&self) -> ArrayType {
         self.array_type
     }
 
-    pub fn elements(&self) -> Option<&[u32]> {
-        self.elements.read().ok().map(|value| value.as_slice())
-    }
-
     pub fn len(&self) -> usize {
-        self.elements.read().map_or(0, |value| value.len())
+        self.elements.borrow().len()
     }
 
     impl_getter_setter!(elements);

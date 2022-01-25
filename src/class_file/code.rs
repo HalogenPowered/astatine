@@ -11,24 +11,29 @@ use crate::types::utils::{FieldTyped, Nameable};
 use crate::utils::buffer::BufferExtras;
 
 #[derive(Debug)]
-pub struct CodeBlock {
+pub struct CodeBlock<'a> {
     max_stack: u16,
     max_locals: u16,
     code: Vec<u8>,
-    exception_handlers: ExceptionHandlerTable,
+    exception_handlers: ExceptionHandlerTable<'a>,
     line_numbers: Option<HashMap<u16, u16>>,
     local_variables: Option<LocalVariableTable>,
     local_variable_types: Option<LocalVariableTable>,
     stack_map_table: Option<StackMapTable>
 }
 
-impl CodeBlock {
-    pub(crate) fn parse(class_file_name: &str, pool: &ConstantPool, buf: &mut Bytes) -> Self {
+impl<'a> CodeBlock<'a> {
+    pub(crate) fn parse(
+        loader: &'a mut ClassLoader<'a>,
+        class_file_name: &str,
+        pool: &ConstantPool,
+        buf: &mut Bytes
+    ) -> Self {
         let max_stack = buf.get_u16();
         let max_locals = buf.get_u16();
         let code_length = buf.get_u32() as usize;
         let code = buf.get_u8_array(code_length);
-        let exception_handlers = ExceptionHandlerTable::parse(buf);
+        let exception_handlers = ExceptionHandlerTable::parse(loader, class_file_name, pool, buf);
         let attribute_count = buf.get_u16();
         let (line_number_table, local_variable_table, local_variable_type_table, stack_map_table) =
             parse_attributes(class_file_name, pool, buf, attribute_count);
@@ -48,7 +53,7 @@ impl CodeBlock {
         max_stack: u16,
         max_locals: u16,
         code: Vec<u8>,
-        exception_handlers: ExceptionHandlerTable,
+        exception_handlers: ExceptionHandlerTable<'a>,
         line_numbers: Option<HashMap<u16, u16>>,
         local_variables: Option<LocalVariableTable>,
         local_variable_types: Option<LocalVariableTable>,
@@ -104,22 +109,26 @@ impl CodeBlock {
 }
 
 #[derive(Debug)]
-pub struct ExceptionHandlerTable {
-    handlers: Vec<ExceptionHandlerBlock>
+pub struct ExceptionHandlerTable<'a> {
+    handlers: Vec<ExceptionHandlerBlock<'a>>
 }
 
-impl ExceptionHandlerTable {
+impl<'a> ExceptionHandlerTable<'a> {
     pub(crate) fn parse(
-        loader: &mut ClassLoader,
+        loader: &'a mut ClassLoader<'a>,
         class_file_name: &str,
         pool: &ConstantPool,
         buf: &mut Bytes
     ) -> Self {
-        ExceptionHandlerTable::new(buf.get_generic_u16_array(
-            |buf| ExceptionHandlerBlock::parse(loader, class_file_name, pool, buf)))
+        let handler_count = buf.get_u16();
+        let mut handlers = Vec::with_capacity(handler_count as usize);
+        for _ in 0..handler_count {
+            handlers.push(ExceptionHandlerBlock::parse(loader, class_file_name, pool, buf))
+        }
+        ExceptionHandlerTable::new(handlers)
     }
 
-    pub const fn new(handlers: Vec<ExceptionHandlerBlock>) -> Self {
+    pub const fn new(handlers: Vec<ExceptionHandlerBlock<'a>>) -> Self {
         ExceptionHandlerTable { handlers }
     }
 
@@ -127,10 +136,10 @@ impl ExceptionHandlerTable {
         self.handlers.get(index)
     }
 
-    pub fn get_handler(&self, exception: &Class) -> Option<&ExceptionHandlerBlock> {
-        for element in self.handlers {
-            if element.catch_type == exception {
-                return Some(&element);
+    pub fn get_handler(&self, exception: &Class) -> Option<&ExceptionHandlerBlock<'a>> {
+        for element in &self.handlers {
+            if element.catch_type as *const Class == exception as *const Class {
+                return Some(element);
             }
         }
         None
@@ -138,16 +147,16 @@ impl ExceptionHandlerTable {
 }
 
 #[derive(Debug)]
-pub struct ExceptionHandlerBlock {
+pub struct ExceptionHandlerBlock<'a> {
     start_pc: u16,
     end_pc: u16,
     handler_pc: u16,
-    catch_type: *const Class
+    catch_type: &'a Class<'a>
 }
 
-impl ExceptionHandlerBlock {
+impl<'a> ExceptionHandlerBlock<'a> {
     pub(crate) fn parse(
-        loader: &mut ClassLoader,
+        loader: &'a mut ClassLoader<'a>,
         class_file_name: &str,
         pool: &ConstantPool,
         buf: &mut Bytes
@@ -161,11 +170,11 @@ impl ExceptionHandlerBlock {
                 constant pool!", class_file_name, catch_type_index))
             .as_str();
         let catch_type = loader.load_class(catch_type_name);
-        ExceptionHandlerBlock::new(start_pc, end_pc, handler_pc, catch_type)
+        ExceptionHandlerBlock { start_pc, end_pc, handler_pc, catch_type }
     }
 
-    pub const fn new(start_pc: u16, end_pc: u16, handler_pc: u16, catch_type: &Class) -> Self {
-        ExceptionHandlerBlock { start_pc, end_pc, handler_pc, catch_type: catch_type as *const Class }
+    pub const fn new(start_pc: u16, end_pc: u16, handler_pc: u16, catch_type: &'a Class<'a>) -> Self {
+        ExceptionHandlerBlock { start_pc, end_pc, handler_pc, catch_type }
     }
 
     pub fn start_pc(&self) -> u16 {
@@ -181,7 +190,7 @@ impl ExceptionHandlerBlock {
     }
 
     pub fn catch_type(&self) -> &Class {
-        unsafe { self.catch_type.as_ref().unwrap() }
+        &self.catch_type
     }
 }
 

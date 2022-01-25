@@ -11,6 +11,13 @@ macro_rules! impl_nameable {
                 self.name.as_str()
             }
         }
+    };
+    ($T:ident, $lifetime:lifetime) => {
+        impl crate::types::utils::Nameable for $T<$lifetime> {
+            fn name(&self) -> &str {
+                self.name.as_str()
+            }
+        }
     }
 }
 
@@ -51,6 +58,13 @@ pub trait Generic {
 macro_rules! impl_generic {
     ($T:ident) => {
         impl crate::types::utils::Generic for $T {
+            fn generic_signature(&self) -> Option<&str> {
+                self.generic_signature.as_ref().map(|value| value.as_str())
+            }
+        }
+    };
+    ($T:ident, $lifetime:lifetime) => {
+        impl crate::types::utils::Generic for $T<$lifetime> {
             fn generic_signature(&self) -> Option<&str> {
                 self.generic_signature.as_ref().map(|value| value.as_str())
             }

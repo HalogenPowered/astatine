@@ -7,16 +7,17 @@ use crate::class_file::attribute_tags::*;
 use crate::class_file::code::CodeBlock;
 use crate::class_file::utils::parse_generic_signature;
 use crate::class_file::version::ClassFileVersion;
+use crate::ClassLoader;
 use crate::utils::constants::*;
 
 #[derive(Debug)]
-pub struct Method {
+pub struct Method<'a> {
     name: String,
     descriptor: MethodType,
     generic_signature: Option<String>,
     access_flags: u16,
     parameters: Vec<MethodParameter>,
-    code: Option<CodeBlock>,
+    code: Option<CodeBlock<'a>>,
     checked_exception_indices: Vec<u16>,
     other_flags: u8
 }
@@ -26,8 +27,9 @@ pub struct Method {
 pub const METHOD_IS_CONSTRUCTOR: u8 = 0x01;
 pub const METHOD_IS_STATIC_INITIALIZER: u8 = 0x02;
 
-impl Method {
+impl<'a> Method<'a> {
     pub(crate) fn parse(
+        loader: &'a mut ClassLoader<'a>,
         class_file_name: &str,
         pool: &ConstantPool,
         buf: &mut Bytes,
@@ -67,8 +69,15 @@ impl Method {
         }
 
         let attribute_count = buf.get_u16();
-        let (code, checked_exception_indices, parameters, generic_signature) =
-            parse_attributes(class_file_name, pool, buf, version, access_flags, attribute_count);
+        let (code, checked_exception_indices, parameters, generic_signature) = parse_attributes(
+            loader,
+            class_file_name,
+            pool,
+            buf,
+            version,
+            access_flags,
+            attribute_count
+        );
         Method {
             name,
             descriptor,
@@ -87,10 +96,10 @@ impl Method {
         generic_signature: Option<&str>,
         access_flags: u16,
         parameters: Vec<MethodParameter>,
-        code: Option<CodeBlock>,
+        code: Option<CodeBlock<'a>>,
         checked_exception_indices: Vec<u16>,
         other_flags: u8
-    ) -> Method {
+    ) -> Self {
         Method {
             name: String::from(name),
             descriptor,
@@ -140,20 +149,20 @@ impl Method {
     }
 }
 
-impl_nameable!(Method);
-impl_generic!(Method);
+impl_nameable!(Method, '_);
+impl_generic!(Method, '_);
 
-impl MethodTyped for Method {
+impl MethodTyped for Method<'_> {
     fn descriptor(&self) -> &MethodType {
         &self.descriptor
     }
 }
 
-impl_accessible!(Method);
-impl_accessible!(Method, FinalAccessible);
-impl_accessible!(Method, PublicAccessible);
-impl_accessible!(Method, AbstractAccessible);
-impl_accessible!(Method, PrivateProtectedStaticAccessible);
+impl_accessible!(Method, '_);
+impl_accessible!(Method, FinalAccessible, '_);
+impl_accessible!(Method, PublicAccessible, '_);
+impl_accessible!(Method, AbstractAccessible, '_);
+impl_accessible!(Method, PrivateProtectedStaticAccessible, '_);
 
 #[derive(Debug)]
 pub struct MethodParameter {
@@ -186,14 +195,15 @@ impl_accessible!(MethodParameter);
 impl_accessible!(MethodParameter, FinalAccessible);
 impl_accessible!(MethodParameter, MandatedAccessible);
 
-fn parse_attributes(
+fn parse_attributes<'a>(
+    loader: &'a mut ClassLoader<'a>,
     class_file_name: &str,
     pool: &ConstantPool,
     buf: &mut Bytes,
     version: &ClassFileVersion,
     access_flags: u16,
     mut attribute_count: u16
-) -> (Option<CodeBlock>, Vec<u16>, Vec<MethodParameter>, Option<String>) {
+) -> (Option<CodeBlock<'a>>, Vec<u16>, Vec<MethodParameter>, Option<String>) {
     let mut code = None;
     let mut checked_exception_indices = Vec::new();
     let mut parameters = Vec::new();
@@ -214,7 +224,7 @@ fn parse_attributes(
             assert!(access_flags & ACC_NATIVE == 0 && access_flags & ACC_ABSTRACT == 0, "Invalid \
                 code attribute for method in class file {}! Abstract and native methods must not \
                 have code attributes!", class_file_name);
-            code = Some(CodeBlock::parse(class_file_name, pool, buf));
+            code = Some(CodeBlock::parse(loader, class_file_name, pool, buf));
         } else if attribute_name == TAG_EXCEPTIONS {
             assert!(checked_exception_indices.is_empty(), "Expected single exceptions attribute \
                 for method in class file {}!", class_file_name);

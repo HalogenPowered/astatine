@@ -67,8 +67,19 @@ macro_rules! impl_accessible {
             }
         }
     };
+    ($T:ident, $lifetime:lifetime) => {
+        impl Accessible for $T<$lifetime> {
+            fn flags(&self) -> u16 {
+                self.access_flags
+            }
+        }
+    };
     ($T:ident, $U:ident) => {
         impl $U for $T {
+        }
+    };
+    ($T:ident, $U:ident, $lifetime:lifetime) => {
+        impl $U for $T<$lifetime> {
         }
     }
 }

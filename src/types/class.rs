@@ -6,28 +6,31 @@ use super::field::Field;
 use super::method::Method;
 use super::record::RecordComponent;
 use crate::class_file::attribute_tags::*;
+use crate::class_file::class_loader::ClassLoader;
 use crate::class_file::version::ClassFileVersion;
 use crate::utils::buffer::BufferExtras;
+use crate::utils::constants::JAVA_LANG_OBJECT_NAME;
 
 #[derive(Debug)]
-pub struct Class {
+pub struct Class<'a> {
     version: ClassFileVersion,
     access_flags: u16,
     constant_pool: ConstantPool,
     name: String,
-    super_class: u16,
+    super_class: Option<&'a Class<'a>>,
     interfaces: Vec<u16>,
     fields: Vec<Field>,
-    methods: Vec<Method>,
+    methods: Vec<Method<'a>>,
     source_file_name: Option<String>,
     inner_classes: Vec<InnerClassInfo>,
-    record_components: Vec<RecordComponent>
+    record_components: Vec<RecordComponent>,
+    is_initialized: bool
 }
 
 const MAGIC_CLASS_FILE_VERSION: u32 = 0xCAFEBABE;
 
-impl Class {
-    pub(crate) fn parse(file_name: &str) -> Self {
+impl<'a> Class<'a> {
+    pub(crate) fn parse(loader: &'a mut ClassLoader<'a>, file_name: &str) -> Self {
         let contents = fs::read(file_name)
             .expect(&format!("Class file name {} could not be read!", file_name));
         let mut buf = Bytes::from(contents);
@@ -58,13 +61,18 @@ impl Class {
             .expect(&format!("Invalid class file {}! Expected class constant to be at index {} in \
                 constant pool!", file_name, this_class))
             .clone();
-        let super_class = buf.get_u16();
+        let super_class = resolve_superclass(loader, file_name, &name, &constant_pool,
+                                             buf.get_u16(), access_flags);
 
         let interfaces = buf.get_u16_array();
-        let fields = buf.get_generic_u16_array(|buf| Field::parse(file_name, &constant_pool, buf,
-                                                                  &version));
-        let methods = buf.get_generic_u16_array(|buf| Method::parse(file_name, &constant_pool, buf,
-                                                                    &version, access_flags));
+        let fields = buf.get_generic_u16_array(|buf| {
+            Field::parse(file_name, &constant_pool, buf, &version)
+        });
+        let method_count = buf.get_u16();
+        let mut methods = Vec::with_capacity(method_count as usize);
+        for _ in 0..method_count {
+            methods.push(Method::parse(loader, file_name, &constant_pool, &mut buf, &version, access_flags))
+        }
 
         let attribute_count = buf.get_u16();
         let (source_file_name, inner_classes, record_components) =
@@ -81,7 +89,8 @@ impl Class {
             methods,
             source_file_name: source_file_name.map(|value| String::from(value)),
             inner_classes: inner_classes.unwrap_or(Vec::new()),
-            record_components: record_components.unwrap_or(Vec::new())
+            record_components: record_components.unwrap_or(Vec::new()),
+            is_initialized: false
         }
     }
 
@@ -90,10 +99,10 @@ impl Class {
         access_flags: u16,
         constant_pool: ConstantPool,
         name: &str,
-        super_class: u16,
+        super_class: Option<&'a Class<'a>>,
         interfaces: Vec<u16>,
         fields: Vec<Field>,
-        methods: Vec<Method>,
+        methods: Vec<Method<'a>>,
         source_file_name: Option<&str>,
         inner_classes: Vec<InnerClassInfo>,
         record_components: Vec<RecordComponent>
@@ -109,7 +118,8 @@ impl Class {
             methods,
             source_file_name: source_file_name.map(|value| String::from(value)),
             inner_classes,
-            record_components
+            record_components,
+            is_initialized: true
         }
     }
 
@@ -127,6 +137,10 @@ impl Class {
 
     pub fn constant_pool(&self) -> &ConstantPool {
         &self.constant_pool
+    }
+
+    pub fn super_class(&self) -> Option<&Class> {
+        self.super_class
     }
 
     pub fn fields(&self) -> &[Field] {
@@ -156,15 +170,52 @@ impl Class {
     pub fn is_module(&self) -> bool {
         self.access_flags & ACC_MODULE != 0
     }
+
+    pub fn is_subclass(&self, other: &Class) -> bool {
+        if self as *const Class == other as *const Class {
+            return true;
+        }
+        let mut super_class = self.super_class();
+        while super_class.is_some() {
+            let class = super_class.unwrap();
+            if class as *const Class == other as *const Class {
+                return true;
+            }
+            super_class = class.super_class();
+        }
+        false
+    }
 }
 
-impl_nameable!(Class);
-impl_accessible!(Class);
-impl_accessible!(Class, FinalAccessible);
-impl_accessible!(Class, PublicAccessible);
-impl_accessible!(Class, AbstractAccessible);
-impl_accessible!(Class, EnumAccessible);
-impl_accessible!(Class, InterfaceAnnotationAccessible);
+fn resolve_superclass<'a>(
+    loader: &'a mut ClassLoader<'a>,
+    class_file_name: &str,
+    name: &str,
+    pool: &ConstantPool,
+    index: u16,
+    flags: u16
+) -> Option<&'a Class<'a>> {
+    assert!(flags & ACC_INTERFACE == 0 || index != 0, "Invalid class file {}! Interfaces must \
+        always have an explicit superclass!", class_file_name);
+    if index == 0 {
+        assert_eq!(name, JAVA_LANG_OBJECT_NAME, "Invalid class file {}! Every class other \
+            than java/lang/Object must have an explicit superclass of java/lang/Object or one of \
+            its subclasses!", class_file_name);
+        return None;
+    }
+    let class_name = pool.resolve_class_name(index as usize)
+        .expect(&format!("Invalid super class for class file {}! Expected index {} to be in \
+            constant pool!", class_file_name, index));
+    Some(loader.load_class(class_name))
+}
+
+impl_nameable!(Class, '_);
+impl_accessible!(Class, '_);
+impl_accessible!(Class, FinalAccessible, '_);
+impl_accessible!(Class, PublicAccessible, '_);
+impl_accessible!(Class, AbstractAccessible, '_);
+impl_accessible!(Class, EnumAccessible, '_);
+impl_accessible!(Class, InterfaceAnnotationAccessible, '_);
 
 #[derive(Debug)]
 pub struct InnerClassInfo {

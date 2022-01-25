@@ -1,44 +1,59 @@
+use std::rc::Rc;
+
+use paste::paste;
+use super::stack_frame::StackFrame;
 use crate::class_file::class_loader::ClassLoader;
 use crate::class_file::code::CodeBlock;
 use crate::objects::heap::HeapSpace;
 use crate::objects::object::{HeapObject, InstanceObject, ReferenceArrayObject, TypeArrayObject};
+use crate::objects::reference::Reference;
 use crate::types::class::Class;
+use crate::types::utils::Nameable;
 use crate::utils::vm_types::ArrayType;
-
-use super::stack_frame::StackFrame;
 
 pub struct Interpreter {
     _singleton: ()
 }
 
-macro_rules! load_array_primitive {
-    ($name:ident, $instruction:literal, $expected:literal, $array_type:pat, $push_name:ident, $get_name:ident) => {
-        fn $name(context: &InterpreterContext, frame: &mut StackFrame) {
-            Interpreter::array_primitive(context, frame, $instruction, $expected,
-                                         |array_type| matches!(array_type, $array_type),
-                                         |array, index| frame.$push_name(array.$get_name(index)));
+macro_rules! load_store_array_primitive {
+    ($name:ident, $instruction_prefix:literal, $expected:literal, $array_type:pat) => {
+        paste! {
+            fn [<load_array_ $name>](context: &InterpreterContext, frame: &mut StackFrame) {
+                Interpreter::array_primitive(context, frame,
+                                             &format!("{}ALOAD", $instruction_prefix), $expected,
+                                             |array_type| matches!(array_type, $array_type),
+                                             |frame, array, index| frame.[<push_ $name _op>](array.[<get_ $name>](index)));
+            }
+
+            fn [<store_array_ $name>](context: &InterpreterContext, frame: &mut StackFrame) {
+                Interpreter::array_primitive(context, frame,
+                                             &format!("{}ASTORE", $instruction_prefix), $expected,
+                                             |array_type| matches!(array_type, $array_type),
+                                             |frame, array, index| array.[<put_ $name>](index, frame.[<pop_ $name _op>]()));
+            }
         }
     };
 }
 
-macro_rules! store_array_primitive {
-    ($name:ident, $instruction:literal, $expected:literal, $array_type:pat, $pop_name:ident, $put_name:ident) => {
-        fn $name(context: &InterpreterContext, frame: &mut StackFrame) {
-            Interpreter::array_primitive(context, frame, $instruction, $expected,
-                                         |array_type| matches!(array_type, $array_type),
-                                         |array, index| array.$put_name(index, frame.$pop_name()));
+macro_rules! primitive_converter {
+    ($from_name:ident, $to_name:ident, $cast_type:ty) => {
+        paste! {
+            fn [<$from_name _to_ $to_name>](context: &InterpreterContext, frame: &mut StackFrame) {
+                let from = frame.[<pop_ $from_name _op>]() as $cast_type;
+                frame.[<push_ $to_name _op>](from);
+            }
         }
-    };
+    }
 }
 
 impl Interpreter {
-    pub fn execute(context: &mut InterpreterContext, code: &CodeBlock, parameters: &[u32]) -> MethodResult {
-        let mut frame = code.new_stack_frame();
+    pub fn execute<'a>(context: &'a mut InterpreterContext<'a>, parameters: &[u32]) -> MethodResult<'a> {
+        let mut frame = context.code.new_stack_frame();
         for parameter in parameters {
             frame.push_op(*parameter);
         }
 
-        let mut parser = CodeParser::new(code.code());
+        let mut parser = CodeParser::new(context.code.code());
         while !parser.is_empty() {
             let op = parser.next();
             match op {
@@ -61,6 +76,10 @@ impl Interpreter {
                 BIPUSH => frame.push_byte_op(parser.next() as i8),
                 CALOAD => Interpreter::load_array_char(context, &mut frame),
                 CASTORE => Interpreter::store_array_char(context, &mut frame),
+                CHECKCAST => Interpreter::check_cast(context, &mut frame, &mut parser),
+                D2F => Interpreter::double_to_float(context, &mut frame),
+                D2I => Interpreter::double_to_int(context, &mut frame),
+                D2L => Interpreter::double_to_long(context, &mut frame),
                 DALOAD => Interpreter::load_array_double(context, &mut frame),
                 DASTORE => Interpreter::store_array_double(context, &mut frame),
                 FALOAD => Interpreter::load_array_float(context, &mut frame),
@@ -78,7 +97,7 @@ impl Interpreter {
     }
 
     fn load_array_ref(context: &InterpreterContext, frame: &mut StackFrame) {
-        let array_ref = frame.pop_ref_array_op(&context.heap)
+        let array_ref = frame.pop_ref_array_op(context.heap)
             .expect("Invalid array reference on operand stack!");
         let index = frame.pop_int_op();
         let value = array_ref.get(index as usize).expect("Invalid array index on operand stack!");
@@ -86,20 +105,20 @@ impl Interpreter {
     }
 
     fn store_array_ref(context: &InterpreterContext, frame: &mut StackFrame) {
-        let array_ref = frame.pop_ref_array_op(&context.heap)
+        let array_ref = frame.pop_ref_array_op(context.heap)
             .expect("Invalid array reference on operand stack!");
         let index = frame.pop_int_op();
-        let value = frame.pop_ref_op(&context.heap).expect("Invalid array value on operand stack!");
+        let value = frame.pop_ref_op(context.heap).expect("Invalid array value on operand stack!");
         array_ref.set(index as usize, value);
     }
 
     fn load_ref(context: &InterpreterContext, frame: &mut StackFrame, index: u8) {
-        let reference = frame.get_local_ref(index as usize, &context.heap)
+        let reference = frame.get_local_ref(index as usize, context.heap)
             .expect(&format!("Invalid reference index {}!", index));
         frame.push_ref_op(reference.offset() as u32);
     }
 
-    fn new_array<'a>(context: &mut InterpreterContext, frame: &mut StackFrame, parser: &mut CodeParser<'a>) {
+    fn new_array<'a>(context: &'a mut InterpreterContext<'a>, frame: &mut StackFrame, parser: &mut CodeParser<'a>) {
         let count = frame.pop_int_op();
         let index = ((parser.next() as u16) << 8) | (parser.next() as u16);
         let class_type = context.class.constant_pool().resolve_class_name(index as usize)
@@ -107,24 +126,24 @@ impl Interpreter {
         let class = context.loader.load_class(class_type);
         let offset = context.heap.get_offset();
         let array = ReferenceArrayObject::new(offset, context.class, class, count as usize);
-        context.heap.push_ref_array(Box::new(array));
+        context.heap.push_ref_array(Rc::new(array));
         frame.push_ref_op(offset as u32);
     }
 
     fn array_length(context: &InterpreterContext, frame: &mut StackFrame) {
-        let array_ref = frame.pop_ref_array_op(&context.heap)
+        let array_ref = frame.pop_ref_array_op(context.heap)
             .expect("Invalid array reference on operand stack!");
         frame.push_int_op(array_ref.len() as i32);
     }
 
     fn store_ref(context: &InterpreterContext, frame: &mut StackFrame, index: u8) {
-        let reference = frame.pop_ref_op(&context.heap)
+        let reference = frame.pop_ref_op(context.heap)
             .expect("Invalid reference on operand stack! Reference cannot be null!");
         frame.set_local_ref(index as usize, reference.offset() as u32);
     }
 
-    fn throw(context: &InterpreterContext, frame: &mut StackFrame, parser: &mut CodeParser) -> Option<MethodResult> {
-        let exception = frame.pop_ref_op(&context.heap)
+    fn throw<'a>(context: &InterpreterContext, frame: &mut StackFrame, parser: &mut CodeParser) -> Option<MethodResult<'a>> {
+        let exception = frame.pop_ref_op(context.heap)
             .expect("Invalid exception on operand stack! Reference cannot be null!");
         let handler = context.code.exception_handlers().get_handler(exception.class());
         match handler {
@@ -137,7 +156,7 @@ impl Interpreter {
     }
 
     fn load_array_byte(context: &InterpreterContext, frame: &mut StackFrame) {
-        Interpreter::common_array_primitive(context, frame, |array, array_type, index| {
+        Interpreter::common_array_primitive(context, frame, |frame, array, array_type, index| {
             match array_type {
                 ArrayType::Byte => frame.push_byte_op(array.get_byte(index)),
                 ArrayType::Boolean => frame.push_bool_op(array.get_bool(index)),
@@ -148,39 +167,54 @@ impl Interpreter {
     }
 
     fn store_array_byte(context: &InterpreterContext, frame: &mut StackFrame) {
-        Interpreter::common_array_primitive(context, frame, |array, array_type, index| {
+        Interpreter::common_array_primitive(context, frame, |frame, array, array_type, index| {
             match array_type {
                 ArrayType::Byte => array.put_byte(index, frame.pop_byte_op()),
                 ArrayType::Boolean => array.put_bool(index, frame.pop_bool_op()),
                 _ => panic!("Invalid type of array for BASTORE! Expected array to be of type \
                     byte or boolean, was {}!", array_type)
             }
-        });
+        })
     }
 
-    load_array_primitive!(load_array_char, "CALOAD", "char", ArrayType::Char, push_char_op, get_char);
-    store_array_primitive!(store_array_char, "CASTORE", "char", ArrayType::Char, pop_char_op, put_char);
-    load_array_primitive!(load_array_double, "DALOAD", "double", ArrayType::Double, push_double_op, get_double);
-    store_array_primitive!(store_array_double, "DASTORE", "double", ArrayType::Double, pop_double_op, put_double);
-    load_array_primitive!(load_array_float, "FALOAD", "float", ArrayType::Float, push_float_op, get_float);
-    store_array_primitive!(store_array_float, "FASTORE", "float", ArrayType::Float, pop_float_op, put_float);
-    load_array_primitive!(load_array_int, "IALOAD", "int", ArrayType::Int, push_int_op, get_int);
-    store_array_primitive!(store_array_int, "IASTORE", "int", ArrayType::Int, pop_int_op, put_int);
-    load_array_primitive!(load_array_long, "LALOAD", "long", ArrayType::Long, push_long_op, get_long);
-    store_array_primitive!(store_array_long, "LASTORE", "long", ArrayType::Long, pop_long_op, put_long);
-    load_array_primitive!(load_array_short, "SALOAD", "short", ArrayType::Short, push_short_op, get_short);
-    store_array_primitive!(store_array_short, "SASTORE", "short", ArrayType::Short, pop_short_op, put_short);
+    load_store_array_primitive!(char, "C", "char", ArrayType::Char);
+    load_store_array_primitive!(double, "D", "double", ArrayType::Double);
+    load_store_array_primitive!(float, "F", "float", ArrayType::Float);
+    load_store_array_primitive!(int, "I", "int", ArrayType::Int);
+    load_store_array_primitive!(long, "L", "long", ArrayType::Long);
+    load_store_array_primitive!(short, "S", "short", ArrayType::Short);
+
+    fn check_cast<'a>(context: &'a mut InterpreterContext<'a>, frame: &mut StackFrame, parser: &mut CodeParser) {
+        let reference = frame.pop_ref_op(Rc::clone(&context.heap));
+        if matches!(reference, Reference::Null) {
+            return;
+        }
+        let reference = reference.unwrap();
+        let class_index = ((parser.next() as u16) << 8) | (parser.next() as u16);
+        let class_name = context.class.constant_pool()
+            .resolve_class_name(class_index as usize)
+            .expect(&format!("Invalid cast check! Expected index {} to be in constant pool!", class_index));
+        let loader = Rc::clone(&context.loader);
+        let class = loader.load_class(class_name);
+        assert!(reference.class().is_subclass(class), "Cannot cast {} to {}!",
+                reference.class().name(), class.name());
+        frame.push_ref_op(reference.offset() as u32);
+    }
+
+    primitive_converter!(double, float, f32);
+    primitive_converter!(double, int, i32);
+    primitive_converter!(double, long, i64);
 
     fn common_array_primitive<F>(
         context: &InterpreterContext,
         frame: &mut StackFrame,
         mapper: F
-    ) where F: Fn(&Box<TypeArrayObject>, ArrayType, usize) {
-        let array_ref = frame.pop_type_array_op(&context.heap)
+    ) where F: Fn(&mut StackFrame, Rc<TypeArrayObject>, ArrayType, usize) {
+        let array_ref = frame.pop_type_array_op(context.heap)
             .expect("Invalid array reference on operand stack! Reference cannot be null!");
         let array_type = array_ref.array_type();
         let index = frame.pop_int_op() as usize;
-        mapper(array_ref, array_type, index)
+        mapper(frame, array_ref, array_type, index)
     }
 
     fn array_primitive<C, F>(
@@ -190,14 +224,14 @@ impl Interpreter {
         expected_type: &str,
         checker: C,
         mapper: F
-    ) where C: Fn(ArrayType) -> bool, F: Fn(&Box<TypeArrayObject>, usize) {
-        Interpreter::common_array_primitive(context, frame, |array, array_type, index| {
+    ) where C: Fn(ArrayType) -> bool, F: Fn(&mut StackFrame, Rc<TypeArrayObject>, usize) {
+        Interpreter::common_array_primitive(context, frame, |frame, array, array_type, index| {
             if checker(array_type) {
-                mapper(array, index)
+                mapper(frame, array, index)
             }
             panic!("Invalid type of array for {}! Expected array to be of type {}, was {}!",
                 instruction, expected_type, array_type)
-        });
+        })
     }
 }
 
@@ -227,18 +261,18 @@ impl<'a> CodeParser<'a> {
 }
 
 pub struct InterpreterContext<'a> {
-    pub heap: Box<HeapSpace>,
-    pub loader: Box<ClassLoader>,
-    pub class: &'a Class,
-    pub code: &'a CodeBlock
+    pub heap: Rc<HeapSpace<'a>>,
+    pub loader: Rc<ClassLoader<'a>>,
+    pub class: &'a Class<'a>,
+    pub code: &'a CodeBlock<'a>
 }
 
-pub enum MethodResult {
+pub enum MethodResult<'a> {
     Integer(i32),
     Long(i64),
     Float(f32),
     Double(f64),
-    Reference(Box<InstanceObject>),
+    Reference(Rc<InstanceObject<'a>>),
     Exception
 }
 
@@ -260,8 +294,15 @@ const BASTORE: u8 = 0x54;
 const BIPUSH: u8 = 0x10;
 const CALOAD: u8 = 0x34;
 const CASTORE: u8 = 0x55;
+const CHECKCAST: u8 = 0xC0;
+const D2F: u8 = 0x90;
+const D2I: u8 = 0x8E;
+const D2L: u8 = 0x8F;
+const DADD: u8 = 0x63;
 const DALOAD: u8  = 0x31;
 const DASTORE: u8 = 0x52;
+const DCMPG: u8 = 0x98;
+const DCMPL: u8 = 0x97;
 const FALOAD: u8 = 0x30;
 const FASTORE: u8 = 0x51;
 const IALOAD: u8 = 0x2E;

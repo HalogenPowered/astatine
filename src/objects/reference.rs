@@ -8,7 +8,14 @@ impl<T> Reference<T> {
     pub fn expect(self, message: &str) -> T {
         match self {
             Reference::Value(value) => value,
-            _ => panic!("{}", message)
+            Reference::Null => panic!("{}", message)
+        }
+    }
+
+    pub fn unwrap(self) -> T {
+        match self {
+            Reference::Value(value) => value,
+            Reference::Null => panic!("called `Reference::unwrap()` on a `Null` value"),
         }
     }
 }

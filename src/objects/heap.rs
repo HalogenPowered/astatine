@@ -1,26 +1,31 @@
-use crate::objects::object::*;
+use std::rc::Rc;
+use paste::paste;
+use super::object::*;
+use super::reference::Reference;
 
-pub struct HeapSpace {
-    allocated: Vec<HeapEntry>
+pub struct HeapSpace<'a> {
+    allocated: Vec<HeapEntry<'a>>
 }
 
 macro_rules! ref_get_push {
-    ($get_name:ident, $push_name:ident, $type:ty, $entry:ident) => {
-        pub fn $get_name(&self, index: usize) -> Option<&Box<$type>> {
-            match self.allocated.get(index) {
-                Some(HeapEntry::$entry(object)) => Some(object),
-                _ => None
+    ($name:ident, $type:ty, $entry:ident) => {
+        paste! {
+            pub fn [<get_ $name>](&self, index: usize) -> Reference<Rc<$type>> {
+                match self.allocated.get(index) {
+                    Some(HeapEntry::$entry(object)) => Reference::Value(Rc::clone(object)),
+                    _ => Reference::Null
+                }
             }
-        }
 
-        pub fn $push_name(&mut self, object: Box<$type>) {
-            self.allocated.push(HeapEntry::$entry(object))
+            pub fn [<push_ $name>](&mut self, object: Rc<$type>) {
+                self.allocated.push(HeapEntry::$entry(object))
+            }
         }
     }
 }
 
-impl HeapSpace {
-    pub const fn new() -> HeapSpace {
+impl<'a> HeapSpace<'a> {
+    pub const fn new() -> Self {
         HeapSpace { allocated: Vec::new() }
     }
 
@@ -28,13 +33,13 @@ impl HeapSpace {
         self.allocated.as_ptr() as usize
     }
 
-    ref_get_push!(get_ref, push_ref, InstanceObject, Instance);
-    ref_get_push!(get_ref_array, push_ref_array, ReferenceArrayObject, ReferenceArray);
-    ref_get_push!(get_type_array, push_type_array, TypeArrayObject, TypeArray);
+    ref_get_push!(ref, InstanceObject<'a>, Instance);
+    ref_get_push!(ref_array, ReferenceArrayObject<'a>, ReferenceArray);
+    ref_get_push!(type_array, TypeArrayObject<'a>, TypeArray);
 }
 
-enum HeapEntry {
-    Instance(Box<InstanceObject>),
-    ReferenceArray(Box<ReferenceArrayObject>),
-    TypeArray(Box<TypeArrayObject>)
+enum HeapEntry<'a> {
+    Instance(Rc<InstanceObject<'a>>),
+    ReferenceArray(Rc<ReferenceArrayObject<'a>>),
+    TypeArray(Rc<TypeArrayObject<'a>>)
 }

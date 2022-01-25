@@ -1,33 +1,34 @@
+use std::rc::Rc;
+use paste::paste;
 use crate::objects::heap::HeapSpace;
 use crate::objects::object::*;
 use crate::objects::reference::Reference;
 use crate::utils::vm_types::ReturnAddress;
 
-macro_rules! get_set_ref {
-    ($name:ident, $ty:ty, $getter_name: ident) => {
-        pub fn $name<'a, 'b>(&'a self, index: usize, heap: &'b Box<HeapSpace>) -> Reference<&'b Box<$ty>> {
-            StackFrame::get_ref(self.get_local(index), |index| heap.$getter_name(index))
-        }
-    }
-}
+macro_rules! get_pop_ref {
+    ($name:ident, $ty:ty) => {
+        paste! {
+            pub fn [<get_local_ $name>]<'a>(&self, index: usize, heap: Rc<HeapSpace<'a>>) -> Reference<Rc<$ty<'a>>> {
+                StackFrame::get_ref(self.get_local(index), |index| heap.[<get_ $name>](index))
+            }
 
-macro_rules! pop_ref_op {
-    ($name:ident, $ty:ty, $getter_name:ident) => {
-        pub fn $name<'a, 'b>(&'a mut self, heap: &'b Box<HeapSpace>) -> Reference<&'b Box<$ty>> {
-            StackFrame::get_ref(self.pop_op(), |index| heap.$getter_name(index))
+            pub fn [<pop_ $name _op>]<'a>(&mut self, heap: Rc<HeapSpace<'a>>) -> Reference<Rc<$ty<'a>>> {
+                StackFrame::get_ref(self.pop_op(), |index| heap.[<get_ $name>](index))
+            }
         }
     }
 }
 
 macro_rules! set_local_push_op {
     ($name:ident, $ty:ty) => {
-        pub fn $name(&mut self, value: $ty) {
-            self.push_op(value as u32)
-        }
-    };
-    ($name:ident, $ty:ty, $a:literal) => {
-        pub fn $name(&mut self, index: usize, value: $ty) {
-            self.set_local(index, value as u32);
+        paste! {
+            pub fn [<push_ $name _op>](&mut self, value: $ty) {
+                self.push_op(value as u32)
+            }
+
+            pub fn [<set_local_ $name>](&mut self, index: usize, value: $ty) {
+                self.set_local(index, value as u32);
+            }
         }
     }
 }
@@ -77,9 +78,9 @@ impl StackFrame {
         parts_to_double(self.get_local(index), self.get_local(index + 1))
     }
 
-    get_set_ref!(get_local_ref, InstanceObject, get_ref);
-    get_set_ref!(get_local_ref_array, ReferenceArrayObject, get_ref_array);
-    get_set_ref!(get_local_type_array, TypeArrayObject, get_type_array);
+    get_pop_ref!(ref, InstanceObject);
+    get_pop_ref!(ref_array, ReferenceArrayObject);
+    get_pop_ref!(type_array, TypeArrayObject);
 
     pub fn get_local_return_address(&self, index: usize) -> Option<ReturnAddress> {
         self.local_variables.get(index).map(|value| *value)
@@ -89,12 +90,12 @@ impl StackFrame {
         *self.local_variables.get(index).expect(&format!("Invalid local variable index {}!", index))
     }
 
-    set_local_push_op!(set_local_bool, bool, 0);
-    set_local_push_op!(set_local_byte, i8, 0);
-    set_local_push_op!(set_local_char, char, 0);
-    set_local_push_op!(set_local_short, i16, 0);
-    set_local_push_op!(set_local_int, i32, 0);
-    set_local_push_op!(set_local_float, f32, 0);
+    set_local_push_op!(bool, bool);
+    set_local_push_op!(byte, i8);
+    set_local_push_op!(char, char);
+    set_local_push_op!(short, i16);
+    set_local_push_op!(int, i32);
+    set_local_push_op!(float, f32);
 
     pub fn set_local_long(&mut self, index: usize, value: i64) {
         self.set_local(index, (value >> 32) as u32);
@@ -114,13 +115,6 @@ impl StackFrame {
     fn set_local(&mut self, index: usize, value: u32) {
         self.local_variables.insert(index, value);
     }
-
-    set_local_push_op!(push_bool_op, bool);
-    set_local_push_op!(push_byte_op, i8);
-    set_local_push_op!(push_char_op, char);
-    set_local_push_op!(push_short_op, i16);
-    set_local_push_op!(push_int_op, i32);
-    set_local_push_op!(push_float_op, f32);
 
     pub fn push_long_op(&mut self, value: i64) {
         self.push_op((value >> 32) as u32);
@@ -177,20 +171,16 @@ impl StackFrame {
         parts_to_double(self.pop_op(), self.pop_op())
     }
 
-    pop_ref_op!(pop_ref_op, InstanceObject, get_ref);
-    pop_ref_op!(pop_ref_array_op, ReferenceArrayObject, get_ref_array);
-    pop_ref_op!(pop_type_array_op, TypeArrayObject, get_type_array);
-
     fn pop_op(&mut self) -> u32 {
         self.operand_stack.pop().expect("Nothing left to pop on the stack! If verification \
             succeeded, this should be impossible!")
     }
 
-    fn get_ref<T, F>(offset: u32, f: F) -> Reference<T> where F : Fn(usize) -> Option<T> {
+    fn get_ref<T, F>(offset: u32, f: F) -> Reference<T> where F : Fn(usize) -> Reference<T> {
         let ref_index = (offset + 1) as usize;
         match offset {
             0 => Reference::Null,
-            _ => Reference::Value(f(ref_index).expect("Invalid reference in stack frame!"))
+            _ => f(ref_index)
         }
     }
 }
