@@ -159,11 +159,16 @@ impl Interpreter {
                 FCMPG => jvm_cmp_float(&mut frame, true),
                 DCMPL => jvm_cmp_double(&mut frame, false),
                 DCMPG => jvm_cmp_double(&mut frame, true),
-                // TODO: IFEQ, IFNE, IFLT, IFGE, IFGT, IFLE, IF_ICMPEQ, IF_ICMPNE, IF_ICMPLT,
-                //  IF_ICMPGE, IF_ICMPGT, IF_ICMPLE, IF_ACMPEQ, IF_ACMPNE, GOTO, JSR, RET,
-                //  TABLESWITCH, LOOKUPSWITCH, IRETURN, LRETURN, FRETURN, DRETURN, ARETURN, RETURN,
-                //  GETSTATIC, PUTSTATIC, GETFIELD, PUTFIELD, INVOKEVIRTUAL, INVOKESPECIAL,
-                //  INVOKESTATIC, INVOKEINTERFACE, INVOKEDYNAMIC, NEW, NEWARRAY
+                IFEQ | IFNE | IFLT | IFGE | IFGT | IFLE => Interpreter::branch(&mut frame, &mut parser, op),
+                IF_ICMPEQ | IF_ICMPNE | IF_ICMPLT | IF_ICMPGE | IF_ICMPGT | IF_ICMPLE => {
+                    Interpreter::int_branch(&context, &mut frame, &mut parser, op)
+                },
+                IF_ACMPEQ | IF_ACMPNE => Interpreter::ref_branch(&context, &mut frame, &mut parser, op),
+                GOTO => Interpreter::branch_seek(&mut parser),
+                JSR => Interpreter::jump_subroutine(&mut frame, &mut parser, false),
+                // TODO: RET,TABLESWITCH, LOOKUPSWITCH, IRETURN, LRETURN, FRETURN,
+                //  DRETURN, ARETURN, RETURN, GETSTATIC, PUTSTATIC, GETFIELD, PUTFIELD, INVOKEVIRTUAL,
+                //  INVOKESPECIAL, INVOKESTATIC, INVOKEINTERFACE, INVOKEDYNAMIC, NEW, NEWARRAY
                 ANEWARRAY => Interpreter::new_array(&context, &mut frame, &mut parser),
                 ARRAYLENGTH => Interpreter::array_length(&context, &mut frame),
                 ATHROW => {
@@ -172,8 +177,12 @@ impl Interpreter {
                     }
                 },
                 CHECKCAST => Interpreter::check_cast(&context, &mut frame, &mut parser),
-                // TODO: INSTANCEOF, MONITORENTER, MONITOREXIT, WIDE, MULTIANEWARRAY, IFNULL,
-                //  IFNONNULL, GOTO_W, JSR_W
+                INSTANCEOF => Interpreter::instanceof(&context, &mut frame, &mut parser),
+                // TODO: MONITORENTER, MONITOREXIT, WIDE, MULTIANEWARRAY
+                IFNULL => Interpreter::branch_null(&context, &mut frame, &mut parser, true),
+                IFNONNULL => Interpreter::branch_null(&context, &mut frame, &mut parser, false),
+                GOTO_W => Interpreter::branch_seek_wide(&mut parser),
+                JSR_W => Interpreter::jump_subroutine(&mut frame, &mut parser, true),
                 _ => panic!("Unrecognised bytecode {}!", op)
             }
         }
@@ -381,11 +390,92 @@ impl Interpreter {
         frame.set_op(0, first);
         frame.set_op(1, second);
     }
+
+    fn branch<'a>(frame: &mut StackFrame, parser: &mut CodeParser<'a>, op: u8) {
+        let value = frame.pop_int_op();
+        let success = (op == IFEQ && value == 0) ||
+            (op == IFNE && value != 0) ||
+            (op == IFLT && value < 0) ||
+            (op == IFLE && value <= 0) ||
+            (op == IFGT && value > 0) ||
+            (op == IFGE && value >= 0);
+        if success {
+            Interpreter::branch_seek(parser);
+        }
+    }
+
+    fn branch_null<'a>(context: &InterpreterContext, frame: &mut StackFrame, parser: &mut CodeParser<'a>, null: bool) {
+        match frame.pop_ref_op(Rc::clone(&context.heap)) {
+            Reference::Value(_) if !null => Interpreter::branch_seek(parser),
+            Reference::Null if null => Interpreter::branch_seek(parser),
+            _ => {}
+        }
+    }
+
+    fn instanceof<'a>(context: &InterpreterContext, frame: &mut StackFrame, parser: &mut CodeParser) {
+        let reference = frame.pop_ref_op(Rc::clone(&context.heap));
+        let index = ((parser.next() as u16) << 8) | (parser.next() as u16);
+        if let Reference::Null = reference {
+            frame.push_int_op(0);
+            return;
+        }
+        let reference = reference.unwrap();
+        let class_name = context.class.constant_pool().resolve_class_name(index as usize)
+            .expect(&format!("Invalid class for instanceof check! Expected index {} to be in constant pool!", index));
+        let class = context.loader.load_class(class_name);
+        let result = if reference.class().is_subclass(class) { 1 } else { 0 };
+        frame.push_int_op(result);
+    }
+
+    fn ref_branch<'a>(context: &InterpreterContext, frame: &mut StackFrame, parser: &mut CodeParser<'a>, op: u8) {
+        let first_ref = frame.pop_ref_op(Rc::clone(&context.heap));
+        let second_ref = frame.pop_ref_op(Rc::clone(&context.heap));
+        let ref_compare = first_ref.equals(second_ref);
+        if (op == IF_ACMPEQ && ref_compare) || (op == IF_ACMPNE && !ref_compare) {
+            Interpreter::branch_seek(parser);
+        }
+    }
+
+    fn int_branch<'a>(context: &InterpreterContext, frame: &mut StackFrame, parser: &mut CodeParser<'a>, op: u8) {
+        let first = frame.pop_int_op();
+        let second = frame.pop_int_op();
+        let success = (op  == IF_ICMPEQ && first == second) ||
+            (op == IF_ICMPNE && first != second) ||
+            (op == IF_ICMPLT && first < second) ||
+            (op == IF_ICMPLE && first <= second) ||
+            (op == IF_ICMPGT && first > second) ||
+            (op == IF_ICMPGE && first >= second);
+        if success {
+            Interpreter::branch_seek(parser);
+        }
+    }
+
+    fn jump_subroutine<'a>(frame: &mut StackFrame, parser: &mut CodeParser<'a>, wide: bool) {
+        frame.push_op(parser.next_index());
+        if wide {
+            Interpreter::branch_seek_wide(parser);
+        } else {
+            Interpreter::branch_seek(parser);
+        }
+    }
+
+    fn branch_seek<'a>(parser: &mut CodeParser<'a>) {
+        let index = ((parser.next() as i16) << 8) | (parser.next() as i16);
+        parser.seek_relative(index as usize);
+    }
+
+    fn branch_seek_wide<'a>(parser: &mut CodeParser<'a>) {
+        let index = ((parser.next() as i32) << 24) |
+            ((parser.next() as i32) << 16) |
+            ((parser.next() as i32) << 8) |
+            (parser.next() as i32);
+        parser.seek_relative(index as usize);
+    }
 }
 
 struct CodeParser<'a> {
     bytes: &'a [u8],
-    index: usize
+    index: u16
 }
 
 impl<'a> CodeParser<'a> {
@@ -398,13 +488,21 @@ impl<'a> CodeParser<'a> {
     }
 
     pub fn next(&mut self) -> u8 {
-        let next = self.bytes[self.index];
+        let next = self.bytes[self.index as usize];
         self.index += 1;
         next
     }
 
+    pub fn next_index(&self) -> u32 {
+        (self.index + 1) as u32
+    }
+
     pub fn seek(&mut self, index: usize) {
-        self.index = index;
+        self.index = index as u16;
+    }
+
+    pub fn seek_relative(&mut self, offset: usize) {
+        self.index += offset as u16;
     }
 }
 
@@ -552,22 +650,22 @@ const FCMPL: u8 = 149;
 const FCMPG: u8 = 150;
 const DCMPL: u8 = 151;
 const DCMPG: u8 = 152;
-//const IFEQ: u8 = 153;
-//const IFNE: u8 = 154;
-//const IFLT: u8 = 155;
-//const IFGE: u8 = 156;
-//const IFGT: u8 = 157;
-//const IFLE: u8 = 158;
-//const IF_ICMPEQ: u8 = 159;
-//const IF_ICMPNE: u8 = 160;
-//const IF_ICMPLT: u8 = 161;
-//const IF_ICMPGE: u8 = 162;
-//const IF_ICMPGT: u8 = 163;
-//const IF_ICMPLE: u8 = 164;
-//const IF_ACMPEQ: u8 = 165;
-//const IF_ACMPNE: u8 = 166;
-//const GOTO: u8 = 167;
-//const JSR: u8 = 168;
+const IFEQ: u8 = 153;
+const IFNE: u8 = 154;
+const IFLT: u8 = 155;
+const IFGE: u8 = 156;
+const IFGT: u8 = 157;
+const IFLE: u8 = 158;
+const IF_ICMPEQ: u8 = 159;
+const IF_ICMPNE: u8 = 160;
+const IF_ICMPLT: u8 = 161;
+const IF_ICMPGE: u8 = 162;
+const IF_ICMPGT: u8 = 163;
+const IF_ICMPLE: u8 = 164;
+const IF_ACMPEQ: u8 = 165;
+const IF_ACMPNE: u8 = 166;
+const GOTO: u8 = 167;
+const JSR: u8 = 168;
 //const RET: u8 = 169;
 //const TABLESWITCH: u8 = 170;
 //const LOOKUPSWITCH: u8 = 171;
@@ -592,15 +690,15 @@ const ANEWARRAY: u8 = 189;
 const ARRAYLENGTH: u8 = 190;
 const ATHROW: u8 = 191;
 const CHECKCAST: u8 = 192;
-//const INSTANCEOF: u8 = 193;
+const INSTANCEOF: u8 = 193;
 //const MONITORENTER: u8 = 194;
 //const MONITOREXIT: u8 = 195;
 //const WIDE: u8 = 196;
 //const MULTIANEWARRAY: u8 = 197;
-//const IFNULL: u8 = 198;
-//const IFNONNULL: u8 = 199;
-//const GOTO_W: u8 = 200;
-//const JSR_W: u8 = 201;
+const IFNULL: u8 = 198;
+const IFNONNULL: u8 = 199;
+const GOTO_W: u8 = 200;
+const JSR_W: u8 = 201;
 //const BREAKPOINT: u8 = 202; // Debug only
 
 macro_rules! generate_load_store_index {

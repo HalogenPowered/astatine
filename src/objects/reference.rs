@@ -1,3 +1,6 @@
+use std::rc::Rc;
+use super::object::HeapObject;
+
 #[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Copy, Clone)]
 pub enum Reference<T> {
     Value(T),
@@ -18,6 +21,14 @@ impl<T> Reference<T> {
             Reference::Null => panic!("called `Reference::unwrap()` on a `Null` value"),
         }
     }
+
+    pub fn is_not_null(&self) -> bool {
+        matches!(self, Reference::Value(_))
+    }
+
+    pub fn is_null(&self) -> bool {
+        matches!(self, Reference::Null)
+    }
 }
 
 impl<T> From<Option<T>> for Reference<T> {
@@ -26,5 +37,17 @@ impl<T> From<Option<T>> for Reference<T> {
             Some(value) => Reference::Value(value),
             None => Reference::Null
         }
+    }
+}
+
+impl<T: HeapObject> Reference<Rc<T>> {
+    pub fn equals(self, other: Self) -> bool {
+        if self.is_null() && other.is_null() {
+            return true;
+        }
+        if self.is_not_null() && other.is_not_null() {
+            return self.unwrap().equals(&other.unwrap())
+        }
+        return false;
     }
 }

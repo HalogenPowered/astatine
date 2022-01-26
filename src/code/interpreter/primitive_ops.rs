@@ -138,7 +138,6 @@ macro_rules! generate_int_long_functions {
     ($name:ident, $primitive:ty, $unsigned:ty) => {
         generate_shared_functions!($name, $primitive);
         primitive_op!($name, and, &);
-        primitive_op!($name, inc, +, 1);
         primitive_op!($name, or, |);
         primitive_op!($name, shl, <<);
         primitive_op!($name, shr, >>);
@@ -151,6 +150,11 @@ generate_int_long_functions!(int, i32, u32);
 generate_int_long_functions!(long, i64, u64);
 generate_shared_functions!(float, f32);
 generate_shared_functions!(double, f64);
+
+pub fn jvm_int_inc(frame: &mut StackFrame) {
+    let value = frame.pop_int_op();
+    frame.push_int_op(value + 1);
+}
 
 // Integer conversion
 primitive_conversion!(int, byte, i8);

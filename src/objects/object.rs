@@ -9,6 +9,10 @@ pub trait HeapObject {
     fn offset(&self) -> usize;
 
     fn class(&self) -> &Class;
+
+    fn equals(&self, other: &Self) -> bool {
+        self as *const Self == other as *const Self
+    }
 }
 
 macro_rules! impl_getter_setter {
