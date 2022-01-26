@@ -30,7 +30,7 @@ impl HeapSpace {
         HeapSpace { allocated: Mutex::new(Vec::new()) }
     }
 
-    pub fn get_offset(&self) -> usize {
+    pub fn offset(&self) -> usize {
         self.allocated.lock().unwrap().as_ptr() as usize
     }
 

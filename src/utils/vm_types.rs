@@ -24,6 +24,22 @@ pub enum ArrayType {
     Long = T_LONG
 }
 
+impl ArrayType {
+    pub fn from(value: u8) -> ArrayType {
+        match value {
+            T_BOOLEAN => ArrayType::Boolean,
+            T_CHAR => ArrayType::Char,
+            T_FLOAT => ArrayType::Float,
+            T_DOUBLE => ArrayType::Double,
+            T_BYTE => ArrayType::Byte,
+            T_SHORT => ArrayType::Short,
+            T_INT => ArrayType::Int,
+            T_LONG => ArrayType::Long,
+            _ => panic!("Invalid array type {}!", value)
+        }
+    }
+}
+
 impl Display for ArrayType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", self)

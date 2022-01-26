@@ -113,6 +113,8 @@ macro_rules! impl_heap_object {
     }
 }
 
+// TODO: Look in to storing a pointer to the start of memory instead of using a vec, which should
+//  offer greater performance and lower memory footprint.
 pub struct InstanceObject {
     offset: usize,
     class: Rc<Class>,
@@ -133,6 +135,8 @@ impl InstanceObject {
 
 impl_heap_object!(InstanceObject);
 
+// TODO: Look in to storing a pointer to the start of memory instead of using a vec, which should
+//  offer greater performance and lower memory footprint.
 pub struct ReferenceArrayObject {
     offset: usize,
     class: Rc<Class>,
@@ -175,6 +179,8 @@ impl ReferenceArrayObject {
 
 impl_heap_object!(ReferenceArrayObject);
 
+// TODO: Look in to storing a pointer to the start of memory instead of using a vec, which should
+//  offer greater performance and lower memory footprint.
 pub struct TypeArrayObject {
     offset: usize,
     class: Rc<Class>,

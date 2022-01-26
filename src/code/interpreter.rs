@@ -1,4 +1,5 @@
 mod primitive_ops;
+use primitive_ops::*;
 
 use std::rc::Rc;
 use paste::paste;
@@ -11,7 +12,7 @@ use crate::objects::reference::Reference;
 use crate::types::class::Class;
 use crate::types::utils::Nameable;
 use crate::utils::vm_types::ArrayType;
-use primitive_ops::*;
+use crate::types::access_flags::*;
 
 pub struct Interpreter {
     _singleton: ()
@@ -161,15 +162,22 @@ impl Interpreter {
                 DCMPG => jvm_cmp_double(&mut frame, true),
                 IFEQ | IFNE | IFLT | IFGE | IFGT | IFLE => Interpreter::branch(&mut frame, &mut parser, op),
                 IF_ICMPEQ | IF_ICMPNE | IF_ICMPLT | IF_ICMPGE | IF_ICMPGT | IF_ICMPLE => {
-                    Interpreter::int_branch(&context, &mut frame, &mut parser, op)
+                    Interpreter::int_branch(&mut frame, &mut parser, op)
                 },
                 IF_ACMPEQ | IF_ACMPNE => Interpreter::ref_branch(&context, &mut frame, &mut parser, op),
                 GOTO => Interpreter::branch_seek(&mut parser),
                 JSR => Interpreter::jump_subroutine(&mut frame, &mut parser, false),
-                // TODO: RET,TABLESWITCH, LOOKUPSWITCH, IRETURN, LRETURN, FRETURN,
-                //  DRETURN, ARETURN, RETURN, GETSTATIC, PUTSTATIC, GETFIELD, PUTFIELD, INVOKEVIRTUAL,
-                //  INVOKESPECIAL, INVOKESTATIC, INVOKEINTERFACE, INVOKEDYNAMIC, NEW, NEWARRAY
-                ANEWARRAY => Interpreter::new_array(&context, &mut frame, &mut parser),
+                // TODO: RET, TABLESWITCH, LOOKUPSWITCH
+                IRETURN => return MethodResult::Integer(frame.pop_int_op()),
+                LRETURN => return MethodResult::Long(frame.pop_long_op()),
+                FRETURN => return MethodResult::Float(frame.pop_float_op()),
+                DRETURN => return MethodResult::Double(frame.pop_double_op()),
+                ARETURN => return MethodResult::Reference(frame.pop_ref_op(context.heap)),
+                RETURN => return MethodResult::Void,
+                // TODO: GETSTATIC, PUTSTATIC, GETFIELD, PUTFIELD, INVOKEVIRTUAL, INVOKESPECIAL,
+                //  INVOKESTATIC, INVOKEINTERFACE, INVOKEDYNAMIC, NEW, NEWARRAY
+                NEW => Interpreter::new_ref(&context, &mut frame, &mut parser),
+                ANEWARRAY => Interpreter::new_ref_array(&context, &mut frame, &mut parser),
                 ARRAYLENGTH => Interpreter::array_length(&context, &mut frame),
                 ATHROW => {
                     if let Some(result) = Interpreter::throw(&context, &mut frame, &mut parser) {
@@ -209,18 +217,6 @@ impl Interpreter {
         let reference = frame.get_local_ref(index as usize, Rc::clone(&context.heap))
             .expect(&format!("Invalid reference index {}!", index));
         frame.push_ref_op(reference.offset() as u32);
-    }
-
-    fn new_array<'a>(context: &InterpreterContext, frame: &mut StackFrame, parser: &mut CodeParser<'a>) {
-        let count = frame.pop_int_op();
-        let index = ((parser.next() as u16) << 8) | (parser.next() as u16);
-        let class_type = context.class.constant_pool().resolve_class_name(index as usize)
-            .expect(&format!("Invalid class type index {}!", index));
-        let class = context.loader.load_class(class_type);
-        let offset = context.heap.get_offset();
-        let array = ReferenceArrayObject::new(offset, Rc::clone(&context.class), class, count as usize);
-        context.heap.push_ref_array(Rc::new(array));
-        frame.push_ref_op(offset as u32);
     }
 
     fn array_length(context: &InterpreterContext, frame: &mut StackFrame) {
@@ -436,7 +432,7 @@ impl Interpreter {
         }
     }
 
-    fn int_branch<'a>(context: &InterpreterContext, frame: &mut StackFrame, parser: &mut CodeParser<'a>, op: u8) {
+    fn int_branch<'a>(frame: &mut StackFrame, parser: &mut CodeParser<'a>, op: u8) {
         let first = frame.pop_int_op();
         let second = frame.pop_int_op();
         let success = (op  == IF_ICMPEQ && first == second) ||
@@ -459,17 +455,50 @@ impl Interpreter {
         }
     }
 
-    fn branch_seek<'a>(parser: &mut CodeParser<'a>) {
+    fn branch_seek(parser: &mut CodeParser) {
         let index = ((parser.next() as i16) << 8) | (parser.next() as i16);
         parser.seek_relative(index as usize);
     }
 
-    fn branch_seek_wide<'a>(parser: &mut CodeParser<'a>) {
+    fn branch_seek_wide(parser: &mut CodeParser) {
         let index = ((parser.next() as i32) << 24) |
             ((parser.next() as i32) << 16) |
             ((parser.next() as i32) << 8) |
             (parser.next() as i32);
         parser.seek_relative(index as usize);
+    }
+
+    fn new_ref<'a>(context: &InterpreterContext, frame: &mut StackFrame, parser: &mut CodeParser<'a>) {
+        let index = ((parser.next() as u16) << 8) | (parser.next() as u16);
+        let class_name = context.class.constant_pool().resolve_class_name(index as usize)
+            .expect(&format!("Invalid object instantiation! Expected index {} to be in constant pool!", index));
+        let class = context.loader.load_class(class_name);
+        if class.is_interface() || class.is_abstract() {
+
+        }
+        let offset = context.heap.offset();
+        let instance = InstanceObject::new(offset, class, 0);
+        context.heap.push_ref(Rc::new(instance));
+        frame.push_ref_op(offset as u32);
+    }
+
+    fn new_ref_array<'a>(context: &InterpreterContext, frame: &mut StackFrame, parser: &mut CodeParser<'a>) {
+        let count = frame.pop_int_op();
+        let index = ((parser.next() as u16) << 8) | (parser.next() as u16);
+        let class_type = context.class.constant_pool().resolve_class_name(index as usize)
+            .expect(&format!("Invalid class type index {}!", index));
+        let class = context.loader.load_class(class_type);
+        let offset = context.heap.offset();
+        let array = ReferenceArrayObject::new(offset, Rc::clone(&context.class), class, count as usize);
+        context.heap.push_ref_array(Rc::new(array));
+        frame.push_ref_op(offset as u32);
+    }
+
+    fn new_type_array<'a>(context: &InterpreterContext, frame: &mut StackFrame, parser: &mut CodeParser<'a>) {
+        let array_type = ArrayType::from(parser.next());
+        let count = frame.pop_int_op();
+        let offset = context.heap.offset();
+        let array = TypeArrayObject::new(offset);
     }
 }
 
@@ -518,7 +547,8 @@ pub enum MethodResult {
     Long(i64),
     Float(f32),
     Double(f64),
-    Reference(Rc<InstanceObject>),
+    Reference(Reference<Rc<InstanceObject>>),
+    Void,
     Exception
 }
 
@@ -669,12 +699,12 @@ const JSR: u8 = 168;
 //const RET: u8 = 169;
 //const TABLESWITCH: u8 = 170;
 //const LOOKUPSWITCH: u8 = 171;
-//const IRETURN: u8 = 172;
-//const LRETURN: u8 = 173;
-//const FRETURN: u8 = 174;
-//const DRETURN: u8 = 175;
-//const ARETURN: u8 = 176;
-//const RETURN: u8 = 177;
+const IRETURN: u8 = 172;
+const LRETURN: u8 = 173;
+const FRETURN: u8 = 174;
+const DRETURN: u8 = 175;
+const ARETURN: u8 = 176;
+const RETURN: u8 = 177;
 //const GETSTATIC: u8 = 178;
 //const PUTSTATIC: u8 = 179;
 //const GETFIELD: u8 = 180;
@@ -684,8 +714,8 @@ const JSR: u8 = 168;
 //const INVOKESTATIC: u8 = 184;
 //const INVOKEINTERFACE: u8 = 185;
 //const INVOKEDYNAMIC: u8 = 186;
-//const NEW: u8 = 187;
-//const NEWARRAY: u8 = 188;
+const NEW: u8 = 187;
+const NEWARRAY: u8 = 188;
 const ANEWARRAY: u8 = 189;
 const ARRAYLENGTH: u8 = 190;
 const ATHROW: u8 = 191;
