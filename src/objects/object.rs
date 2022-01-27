@@ -2,6 +2,8 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use crate::types::class::Class;
 use crate::utils::vm_types::ArrayType;
+use super::heap::HeapSpace;
+use super::reference::Reference;
 
 /// Represents something that has been allocated on the heap by the VM, such as an object
 /// or an array.
@@ -91,11 +93,11 @@ macro_rules! impl_getter_setter {
             self.put(index + 1, bits as u32);
         }
 
-        fn get(&self, index: usize) -> u32 {
+        pub fn get(&self, index: usize) -> u32 {
             self.$field_name.borrow().get(index).map_or(0, |value| *value)
         }
 
-        fn put(&self, index: usize, value: u32) {
+        pub fn put(&self, index: usize, value: u32) {
             self.$field_name.borrow_mut().insert(index, value);
         }
     }

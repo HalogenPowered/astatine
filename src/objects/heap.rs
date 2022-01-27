@@ -5,7 +5,8 @@ use super::object::*;
 use super::reference::Reference;
 
 pub struct HeapSpace {
-    allocated: Mutex<Vec<HeapEntry>>
+    allocated: Mutex<Vec<HeapEntry>>,
+    maximum_size: usize
 }
 
 macro_rules! ref_get_push {
@@ -26,12 +27,12 @@ macro_rules! ref_get_push {
 }
 
 impl HeapSpace {
-    pub fn new() -> Self {
-        HeapSpace { allocated: Mutex::new(Vec::new()) }
+    pub fn new(maximum_size: usize) -> Self {
+        HeapSpace { allocated: Mutex::new(Vec::new()), maximum_size }
     }
 
-    pub fn offset(&self) -> usize {
-        self.allocated.lock().unwrap().as_ptr() as usize
+    pub fn len(&self) -> usize {
+        self.allocated.lock().unwrap().len()
     }
 
     ref_get_push!(ref, InstanceObject, Instance);

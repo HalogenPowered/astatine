@@ -144,6 +144,10 @@ impl Class {
         self.super_class.as_ref().map(|value| Rc::clone(value))
     }
 
+    pub fn field_count(&self) -> usize {
+        self.fields.len()
+    }
+
     pub fn fields(&self) -> &[Field] {
         self.fields.as_slice()
     }

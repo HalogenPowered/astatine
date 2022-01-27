@@ -475,10 +475,18 @@ impl Interpreter {
             .expect(&format!("Invalid object instantiation! Expected index {} to be in constant pool!", index));
         let class = context.loader.load_class(class_name);
         if class.is_interface() || class.is_abstract() {
-
+            panic!("Attempted to instantiate an interface or abstract class!");
         }
-        let offset = context.heap.offset();
-        let instance = InstanceObject::new(offset, class, 0);
+
+        let offset = context.heap.len(); // Index of next element will be the current length
+        let field_count = class.field_count();
+        let instance = InstanceObject::new(offset, Rc::clone(&class), field_count);
+        for i in 0..field_count {
+            // Everything gets initialised to default values. For primitives, this is 0.
+            // For references, this is null, but the offset of null references is 0.
+            instance.put(i, 0);
+        }
+
         context.heap.push_ref(Rc::new(instance));
         frame.push_ref_op(offset as u32);
     }
@@ -489,7 +497,7 @@ impl Interpreter {
         let class_type = context.class.constant_pool().resolve_class_name(index as usize)
             .expect(&format!("Invalid class type index {}!", index));
         let class = context.loader.load_class(class_type);
-        let offset = context.heap.offset();
+        let offset = context.heap.len(); // Index of next element will be the current length
         let array = ReferenceArrayObject::new(offset, Rc::clone(&context.class), class, count as usize);
         context.heap.push_ref_array(Rc::new(array));
         frame.push_ref_op(offset as u32);
@@ -498,7 +506,7 @@ impl Interpreter {
     fn new_type_array<'a>(context: &InterpreterContext, frame: &mut StackFrame, parser: &mut CodeParser<'a>) {
         let array_type = ArrayType::from(parser.next());
         let count = frame.pop_int_op();
-        let offset = context.heap.offset();
+        let offset = context.heap.len(); // Index of next element will be the current length
         let array = TypeArrayObject::new(offset, array_type, count as usize);
         context.heap.push_type_array(Rc::new(array));
         frame.push_ref_op(offset as u32);
