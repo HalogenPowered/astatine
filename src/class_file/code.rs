@@ -137,9 +137,9 @@ impl ExceptionHandlerTable {
         self.handlers.get(index)
     }
 
-    pub fn get_handler(&self, exception: &Class) -> Option<&ExceptionHandlerBlock> {
+    pub fn get_handler(&self, exception: Rc<Class>) -> Option<&ExceptionHandlerBlock> {
         for element in &self.handlers {
-            if element.catch_type.as_ref() as *const Class == exception as *const Class {
+            if element.catch_type.as_ref() as *const Class == exception.as_ref() as *const Class {
                 return Some(element);
             }
         }

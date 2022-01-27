@@ -7,7 +7,7 @@ use super::stack_frame::StackFrame;
 use crate::class_file::class_loader::ClassLoader;
 use crate::class_file::code::CodeBlock;
 use crate::objects::heap::HeapSpace;
-use crate::objects::object::{HeapObject, InstanceObject, ReferenceArrayObject, TypeArrayObject};
+use crate::objects::object::*;
 use crate::objects::reference::Reference;
 use crate::types::class::Class;
 use crate::types::utils::Nameable;
@@ -175,8 +175,9 @@ impl Interpreter {
                 ARETURN => return MethodResult::Reference(frame.pop_ref_op(context.heap)),
                 RETURN => return MethodResult::Void,
                 // TODO: GETSTATIC, PUTSTATIC, GETFIELD, PUTFIELD, INVOKEVIRTUAL, INVOKESPECIAL,
-                //  INVOKESTATIC, INVOKEINTERFACE, INVOKEDYNAMIC, NEW, NEWARRAY
+                //  INVOKESTATIC, INVOKEINTERFACE, INVOKEDYNAMIC
                 NEW => Interpreter::new_ref(&context, &mut frame, &mut parser),
+                NEWARRAY => Interpreter::new_type_array(&context, &mut frame, &mut parser),
                 ANEWARRAY => Interpreter::new_ref_array(&context, &mut frame, &mut parser),
                 ARRAYLENGTH => Interpreter::array_length(&context, &mut frame),
                 ATHROW => {
@@ -498,7 +499,9 @@ impl Interpreter {
         let array_type = ArrayType::from(parser.next());
         let count = frame.pop_int_op();
         let offset = context.heap.offset();
-        let array = TypeArrayObject::new(offset);
+        let array = TypeArrayObject::new(offset, array_type, count as usize);
+        context.heap.push_type_array(Rc::new(array));
+        frame.push_ref_op(offset as u32);
     }
 }
 

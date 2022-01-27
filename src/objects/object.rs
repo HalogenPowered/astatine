@@ -8,11 +8,13 @@ use crate::utils::vm_types::ArrayType;
 pub trait HeapObject {
     fn offset(&self) -> usize;
 
-    fn class(&self) -> &Class;
-
     fn equals(&self, other: &Self) -> bool {
         self as *const Self == other as *const Self
     }
+}
+
+pub trait ReferenceHeapObject: HeapObject {
+    fn class(&self) -> Rc<Class>;
 }
 
 macro_rules! impl_getter_setter {
@@ -105,9 +107,11 @@ macro_rules! impl_heap_object {
             fn offset(&self) -> usize {
                 self.offset
             }
+        }
 
-            fn class(&self) -> &Class {
-                &self.class
+        impl ReferenceHeapObject for $T {
+            fn class(&self) -> Rc<Class> {
+                Rc::clone(&self.class)
             }
         }
     }
@@ -183,19 +187,13 @@ impl_heap_object!(ReferenceArrayObject);
 //  offer greater performance and lower memory footprint.
 pub struct TypeArrayObject {
     offset: usize,
-    class: Rc<Class>,
     array_type: ArrayType,
     elements: RefCell<Vec<u32>>
 }
 
 impl TypeArrayObject {
-    pub fn new(
-        offset: usize,
-        class: Rc<Class>,
-        array_type: ArrayType,
-        size: usize
-    ) -> Self {
-        TypeArrayObject { offset, class, array_type, elements: RefCell::new(Vec::with_capacity(size)) }
+    pub fn new(offset: usize, array_type: ArrayType, size: usize) -> Self {
+        TypeArrayObject { offset, array_type, elements: RefCell::new(Vec::with_capacity(size)) }
     }
 
     pub fn array_type(&self) -> ArrayType {
@@ -209,4 +207,8 @@ impl TypeArrayObject {
     impl_getter_setter!(elements);
 }
 
-impl_heap_object!(TypeArrayObject);
+impl HeapObject for TypeArrayObject {
+    fn offset(&self) -> usize {
+        self.offset
+    }
+}
