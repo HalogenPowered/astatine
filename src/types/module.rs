@@ -1,4 +1,5 @@
 use bytes::{Buf, Bytes};
+use internship::IStr;
 use super::access_flags::*;
 use super::constant_pool::{MODULE_TAG, PACKAGE_TAG};
 use crate::class_file::version::ClassFileVersion;
@@ -6,9 +7,9 @@ use crate::types::constant_pool::ConstantPool;
 use crate::utils::buffer::BufferExtras;
 
 pub struct Module {
-    name: String,
+    name: IStr,
     access_flags: u16,
-    version: Option<String>,
+    version: Option<IStr>,
     requires: Vec<ModuleRequires>,
     exports: Vec<ModuleExports>,
     opens: Vec<ModuleOpens>,
@@ -28,11 +29,11 @@ impl Module {
         let name_index = buf.get_u16();
         let name = pool.get_string(name_index as usize)
             .expect(&format!("Invalid module for class file {}! Expected name at index {} in \
-                constant pool!", class_file_name, name_index))
-            .clone();
+                constant pool!", class_file_name, name_index));
+
         let access_flags = buf.get_u16();
         let version_index = buf.get_u16();
-        let version = pool.get_string(version_index as usize).map(|value| value.clone());
+        let version = pool.get_string(version_index as usize);
         if version_index != 0 {
             assert!(version.is_some(), "Invalid version attribute for module in class file {}! \
                 Expected value for non-zero version index {}!", class_file_name, version_index);
@@ -69,9 +70,9 @@ impl Module {
         provides: Vec<ModuleProvides>
     ) -> Module {
         Module {
-            name: String::from(name),
+            name: IStr::new(name),
             access_flags,
-            version: version.map(|value| String::from(value)),
+            version: version.map(|value| IStr::new(value)),
             requires,
             exports,
             opens,
@@ -135,7 +136,7 @@ macro_rules! module_component_impl {
 pub struct ModuleRequires {
     module_index: u16,
     access_flags: u16,
-    version: Option<String>
+    version: Option<IStr>
 }
 
 impl ModuleRequires {
@@ -150,7 +151,7 @@ impl ModuleRequires {
         let access_flags = buf.get_u16();
         check_requires_flags(module_name, version, access_flags);
         let version_index = buf.get_u16();
-        let version = pool.get_string(version_index as usize).map(|value| value.clone());
+        let version = pool.get_string(version_index as usize);
         if version_index != 0 {
             assert!(version.is_some(), "Invalid version attribute for module requirement in class \
                 file {}! Expected value for non-zero version index {}!", class_file_name, version_index);
@@ -162,7 +163,7 @@ impl ModuleRequires {
         ModuleRequires {
             module_index,
             access_flags,
-            version: version.map(|value| String::from(value))
+            version: version.map(|value| IStr::new(value))
         }
     }
 

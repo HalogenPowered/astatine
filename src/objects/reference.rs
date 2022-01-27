@@ -1,4 +1,4 @@
-use std::rc::Rc;
+use std::sync::Arc;
 use super::object::HeapObject;
 
 #[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Copy, Clone)]
@@ -40,7 +40,7 @@ impl<T> From<Option<T>> for Reference<T> {
     }
 }
 
-impl<T: HeapObject> Reference<Rc<T>> {
+impl<T: HeapObject> Reference<Arc<T>> {
     pub fn equals(self, other: Self) -> bool {
         if self.is_null() && other.is_null() {
             return true;

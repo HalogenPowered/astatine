@@ -1,9 +1,9 @@
 mod primitive_ops;
-use primitive_ops::*;
 
-use std::rc::Rc;
+use std::borrow::Borrow;
+use std::sync::Arc;
 use paste::paste;
-use super::stack_frame::StackFrame;
+use primitive_ops::*;
 use crate::class_file::class_loader::ClassLoader;
 use crate::class_file::code::CodeBlock;
 use crate::objects::heap::HeapSpace;
@@ -13,6 +13,7 @@ use crate::types::class::Class;
 use crate::types::utils::Nameable;
 use crate::utils::vm_types::ArrayType;
 use crate::types::access_flags::*;
+use super::stack_frame::StackFrame;
 
 pub struct Interpreter {
     _singleton: ()
@@ -199,7 +200,7 @@ impl Interpreter {
     }
 
     fn load_array_ref(context: &InterpreterContext, frame: &mut StackFrame) {
-        let array_ref = frame.pop_ref_array_op(Rc::clone(&context.heap))
+        let array_ref = frame.pop_ref_array_op(Arc::clone(&context.heap))
             .expect("Invalid array reference on operand stack!");
         let index = frame.pop_int_op();
         let value = array_ref.get(index as usize).expect("Invalid array index on operand stack!");
@@ -207,33 +208,33 @@ impl Interpreter {
     }
 
     fn store_array_ref(context: &InterpreterContext, frame: &mut StackFrame) {
-        let array_ref = frame.pop_ref_array_op(Rc::clone(&context.heap))
+        let array_ref = frame.pop_ref_array_op(Arc::clone(&context.heap))
             .expect("Invalid array reference on operand stack!");
         let index = frame.pop_int_op();
-        let value = frame.pop_ref_op(Rc::clone(&context.heap)).expect("Invalid array value on operand stack!");
+        let value = frame.pop_ref_op(Arc::clone(&context.heap)).expect("Invalid array value on operand stack!");
         array_ref.set(index as usize, value);
     }
 
     fn load_ref(context: &InterpreterContext, frame: &mut StackFrame, index: u8) {
-        let reference = frame.get_local_ref(index as usize, Rc::clone(&context.heap))
+        let reference = frame.get_local_ref(index as usize, Arc::clone(&context.heap))
             .expect(&format!("Invalid reference index {}!", index));
         frame.push_ref_op(reference.offset() as u32);
     }
 
     fn array_length(context: &InterpreterContext, frame: &mut StackFrame) {
-        let array_ref = frame.pop_ref_array_op(Rc::clone(&context.heap))
+        let array_ref = frame.pop_ref_array_op(Arc::clone(&context.heap))
             .expect("Invalid array reference on operand stack!");
         frame.push_int_op(array_ref.len() as i32);
     }
 
     fn store_ref(context: &InterpreterContext, frame: &mut StackFrame, index: u8) {
-        let reference = frame.pop_ref_op(Rc::clone(&context.heap))
+        let reference = frame.pop_ref_op(Arc::clone(&context.heap))
             .expect("Invalid reference on operand stack! Reference cannot be null!");
         frame.set_local_ref(index as usize, reference.offset() as u32);
     }
 
     fn throw(context: &InterpreterContext, frame: &mut StackFrame, parser: &mut CodeParser) -> Option<MethodResult> {
-        let exception = frame.pop_ref_op(Rc::clone(&context.heap))
+        let exception = frame.pop_ref_op(Arc::clone(&context.heap))
             .expect("Invalid exception on operand stack! Reference cannot be null!");
         let handler = context.code.exception_handlers().get_handler(exception.class());
         match handler {
@@ -275,18 +276,19 @@ impl Interpreter {
     load_store_array_primitive!(short, "S", "short", ArrayType::Short);
 
     fn check_cast(context: &InterpreterContext, frame: &mut StackFrame, parser: &mut CodeParser) {
-        let reference = frame.pop_ref_op(Rc::clone(&context.heap));
+        let reference = frame.pop_ref_op(Arc::clone(&context.heap));
         if matches!(reference, Reference::Null) {
             return;
         }
         let reference = reference.unwrap();
+
         let class_index = ((parser.next() as u16) << 8) | (parser.next() as u16);
-        let class_name = context.class.constant_pool()
-            .resolve_class_name(class_index as usize)
-            .expect(&format!("Invalid cast check! Expected index {} to be in constant pool!", class_index));
-        let class = context.loader.load_class(class_name);
-        assert!(reference.class().is_subclass(Rc::clone(&class)), "Cannot cast {} to {}!",
-                reference.class().name(), Rc::clone(&class).name());
+        let class = context.class.constant_pool()
+            .resolve_class(class_index as usize, context.loader.borrow())
+            .expect(&format!("Invalid cast check! Expected index {} to be in constant \
+                pool!", class_index));
+        assert!(reference.class().is_subclass(Arc::clone(&class)), "Cannot cast {} to {}!",
+                reference.class().name(), Arc::clone(&class).name());
         frame.push_ref_op(reference.offset() as u32);
     }
 
@@ -294,8 +296,8 @@ impl Interpreter {
         context: &InterpreterContext,
         frame: &mut StackFrame,
         mapper: F
-    ) where F: Fn(&mut StackFrame, Rc<TypeArrayObject>, ArrayType, usize) {
-        let array_ref = frame.pop_type_array_op(Rc::clone(&context.heap))
+    ) where F: Fn(&mut StackFrame, Arc<TypeArrayObject>, ArrayType, usize) {
+        let array_ref = frame.pop_type_array_op(Arc::clone(&context.heap))
             .expect("Invalid array reference on operand stack! Reference cannot be null!");
         let array_type = array_ref.array_type();
         let index = frame.pop_int_op() as usize;
@@ -309,7 +311,7 @@ impl Interpreter {
         expected_type: &str,
         checker: C,
         mapper: F
-    ) where C: Fn(ArrayType) -> bool, F: Fn(&mut StackFrame, Rc<TypeArrayObject>, usize) {
+    ) where C: Fn(ArrayType) -> bool, F: Fn(&mut StackFrame, Arc<TypeArrayObject>, usize) {
         Interpreter::common_array_primitive(context, frame, |frame, array, array_type, index| {
             if checker(array_type) {
                 mapper(frame, array, index)
@@ -402,7 +404,7 @@ impl Interpreter {
     }
 
     fn branch_null<'a>(context: &InterpreterContext, frame: &mut StackFrame, parser: &mut CodeParser<'a>, null: bool) {
-        match frame.pop_ref_op(Rc::clone(&context.heap)) {
+        match frame.pop_ref_op(Arc::clone(&context.heap)) {
             Reference::Value(_) if !null => Interpreter::branch_seek(parser),
             Reference::Null if null => Interpreter::branch_seek(parser),
             _ => {}
@@ -410,23 +412,24 @@ impl Interpreter {
     }
 
     fn instanceof<'a>(context: &InterpreterContext, frame: &mut StackFrame, parser: &mut CodeParser) {
-        let reference = frame.pop_ref_op(Rc::clone(&context.heap));
+        let reference = frame.pop_ref_op(Arc::clone(&context.heap));
         let index = ((parser.next() as u16) << 8) | (parser.next() as u16);
         if let Reference::Null = reference {
             frame.push_int_op(0);
             return;
         }
         let reference = reference.unwrap();
-        let class_name = context.class.constant_pool().resolve_class_name(index as usize)
-            .expect(&format!("Invalid class for instanceof check! Expected index {} to be in constant pool!", index));
-        let class = context.loader.load_class(class_name);
+
+        let class = context.class.constant_pool().resolve_class(index as usize, context.loader.borrow())
+            .expect(&format!("Invalid class for instanceof check! Expected index {} to be in \
+                constant pool!", index));
         let result = if reference.class().is_subclass(class) { 1 } else { 0 };
         frame.push_int_op(result);
     }
 
     fn ref_branch<'a>(context: &InterpreterContext, frame: &mut StackFrame, parser: &mut CodeParser<'a>, op: u8) {
-        let first_ref = frame.pop_ref_op(Rc::clone(&context.heap));
-        let second_ref = frame.pop_ref_op(Rc::clone(&context.heap));
+        let first_ref = frame.pop_ref_op(Arc::clone(&context.heap));
+        let second_ref = frame.pop_ref_op(Arc::clone(&context.heap));
         let ref_compare = first_ref.equals(second_ref);
         if (op == IF_ACMPEQ && ref_compare) || (op == IF_ACMPNE && !ref_compare) {
             Interpreter::branch_seek(parser);
@@ -471,35 +474,35 @@ impl Interpreter {
 
     fn new_ref<'a>(context: &InterpreterContext, frame: &mut StackFrame, parser: &mut CodeParser<'a>) {
         let index = ((parser.next() as u16) << 8) | (parser.next() as u16);
-        let class_name = context.class.constant_pool().resolve_class_name(index as usize)
-            .expect(&format!("Invalid object instantiation! Expected index {} to be in constant pool!", index));
-        let class = context.loader.load_class(class_name);
+        let class = context.class.constant_pool().resolve_class(index as usize, context.loader.borrow())
+            .expect(&format!("Invalid object instantiation! Expected index {} to be in constant \
+                pool!", index));
         if class.is_interface() || class.is_abstract() {
             panic!("Attempted to instantiate an interface or abstract class!");
         }
 
         let offset = context.heap.len(); // Index of next element will be the current length
         let field_count = class.field_count();
-        let instance = InstanceObject::new(offset, Rc::clone(&class), field_count);
+        let instance = InstanceObject::new(offset, Arc::clone(&class), field_count);
         for i in 0..field_count {
             // Everything gets initialised to default values. For primitives, this is 0.
             // For references, this is null, but the offset of null references is 0.
             instance.put(i, 0);
         }
 
-        context.heap.push_ref(Rc::new(instance));
+        context.heap.push_ref(Arc::new(instance));
         frame.push_ref_op(offset as u32);
     }
 
     fn new_ref_array<'a>(context: &InterpreterContext, frame: &mut StackFrame, parser: &mut CodeParser<'a>) {
         let count = frame.pop_int_op();
         let index = ((parser.next() as u16) << 8) | (parser.next() as u16);
-        let class_type = context.class.constant_pool().resolve_class_name(index as usize)
+        let class = context.class.constant_pool().resolve_class(index as usize, context.loader.borrow())
             .expect(&format!("Invalid class type index {}!", index));
-        let class = context.loader.load_class(class_type);
+
         let offset = context.heap.len(); // Index of next element will be the current length
-        let array = ReferenceArrayObject::new(offset, Rc::clone(&context.class), class, count as usize);
-        context.heap.push_ref_array(Rc::new(array));
+        let array = ReferenceArrayObject::new(offset, Arc::clone(&context.class), class, count as usize);
+        context.heap.push_ref_array(Arc::new(array));
         frame.push_ref_op(offset as u32);
     }
 
@@ -508,7 +511,7 @@ impl Interpreter {
         let count = frame.pop_int_op();
         let offset = context.heap.len(); // Index of next element will be the current length
         let array = TypeArrayObject::new(offset, array_type, count as usize);
-        context.heap.push_type_array(Rc::new(array));
+        context.heap.push_type_array(Arc::new(array));
         frame.push_ref_op(offset as u32);
     }
 }
@@ -547,10 +550,10 @@ impl<'a> CodeParser<'a> {
 }
 
 pub struct InterpreterContext {
-    pub heap: Rc<HeapSpace>,
-    pub loader: Rc<ClassLoader>,
-    pub class: Rc<Class>,
-    pub code: Rc<CodeBlock>
+    pub heap: Arc<HeapSpace>,
+    pub loader: Arc<ClassLoader>,
+    pub class: Arc<Class>,
+    pub code: Arc<CodeBlock>
 }
 
 pub enum MethodResult {
@@ -558,7 +561,7 @@ pub enum MethodResult {
     Long(i64),
     Float(f32),
     Double(f64),
-    Reference(Reference<Rc<InstanceObject>>),
+    Reference(Reference<Arc<InstanceObject>>),
     Void,
     Exception
 }

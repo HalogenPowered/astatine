@@ -1,4 +1,5 @@
 use bytes::{Buf, Bytes};
+use internship::IStr;
 use java_desc::MethodType;
 use super::access_flags::*;
 use super::constant_pool::ConstantPool;
@@ -12,9 +13,9 @@ use crate::utils::constants::*;
 
 #[derive(Debug)]
 pub struct Method {
-    name: String,
+    name: IStr,
     descriptor: MethodType,
-    generic_signature: Option<String>,
+    generic_signature: Option<IStr>,
     access_flags: u16,
     parameters: Vec<MethodParameter>,
     code: Option<CodeBlock>,
@@ -43,7 +44,7 @@ impl Method {
                 constant pool!", class_file_name, name_index))
             .clone();
         let descriptor_index = buf.get_u16();
-        let descriptor = pool.get_string(descriptor_index as usize)
+        let descriptor = pool.get_utf8(descriptor_index as usize)
             .and_then(|value| MethodType::parse(value))
             .expect(&format!("Invalid descriptor for method in class file {}!", class_file_name));
 
@@ -101,9 +102,9 @@ impl Method {
         other_flags: u8
     ) -> Self {
         Method {
-            name: String::from(name),
+            name: IStr::new(name),
             descriptor,
-            generic_signature: generic_signature.map(|value| String::from(value)),
+            generic_signature: generic_signature.map(|value| IStr::new(value)),
             access_flags,
             parameters,
             code,
@@ -166,27 +167,22 @@ impl_accessible!(Method, PrivateProtectedStaticAccessible);
 
 #[derive(Debug)]
 pub struct MethodParameter {
-    name: String,
+    name: IStr,
     access_flags: u16
 }
 
 impl MethodParameter {
-    pub(crate) fn parse(
-        class_file_name: &str,
-        pool: &ConstantPool,
-        buf: &mut Bytes
-    ) -> MethodParameter {
+    pub(crate) fn parse(class_file_name: &str, pool: &ConstantPool, buf: &mut Bytes) -> Self {
         let name_index = buf.get_u16();
         let name = pool.get_string(name_index as usize)
             .expect(&format!("Invalid method parameter for method in class file {}! Expected name \
-                at index {}!", class_file_name, name_index))
-            .clone();
+                at index {}!", class_file_name, name_index));
         let access_flags = buf.get_u16();
         MethodParameter { name, access_flags }
     }
 
     pub fn new(name: &str, access_flags: u16) -> Self {
-        MethodParameter { name: String::from(name), access_flags }
+        MethodParameter { name: IStr::from(name), access_flags }
     }
 }
 
@@ -203,7 +199,7 @@ fn parse_attributes(
     version: &ClassFileVersion,
     access_flags: u16,
     mut attribute_count: u16
-) -> (Option<CodeBlock>, Vec<u16>, Vec<MethodParameter>, Option<String>) {
+) -> (Option<CodeBlock>, Vec<u16>, Vec<MethodParameter>, Option<IStr>) {
     let mut code = None;
     let mut checked_exception_indices = Vec::new();
     let mut parameters = Vec::new();

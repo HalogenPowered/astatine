@@ -1,4 +1,7 @@
+use std::sync::Arc;
 use bytes::{Buf, Bytes};
+use internship::IStr;
+use crate::{Class, ClassLoader};
 
 macro_rules! get_constant {
     ($name:ident, $ty:ty, $constant_name:ident) => {
@@ -56,10 +59,10 @@ impl ConstantPool {
         self.get_string(index).map(|value| value.as_str())
     }
 
-    // Same as get_utf8, but returns the underlying String object, rather than a splice
-    pub fn get_string(&self, index: usize) -> Option<&String> {
+    // Same as get_utf8, but returns the underlying IStr object, rather than a splice
+    pub fn get_string(&self, index: usize) -> Option<IStr> {
         match self.get(index) {
-            Some(PoolConstant::Utf8(value)) => Some(value),
+            Some(PoolConstant::Utf8(value)) => Some(value.clone()),
             _ => None
         }
     }
@@ -69,9 +72,17 @@ impl ConstantPool {
     get_constant!(get_long, i64, Long);
     get_constant!(get_double, f64, Double);
 
-    pub fn resolve_class_name(&self, index: usize) -> Option<&String> {
+    pub fn resolve_class_name(&self, index: usize) -> Option<IStr> {
         match self.get(index) {
             Some(PoolConstant::Class { name_index }) => self.get_string(*name_index as usize),
+            _ => None
+        }
+    }
+
+    pub fn resolve_class(&self, index: usize, loader: &ClassLoader) -> Option<Arc<Class>> {
+        match self.get(index) {
+            Some(PoolConstant::Class { name_index }) => self.get_string(*name_index as usize)
+                .map(|name| loader.load_class(name.as_str())),
             _ => None
         }
     }
@@ -97,7 +108,7 @@ pub const PACKAGE_TAG: u8 = 20;
 
 #[derive(Debug)]
 pub enum PoolConstant {
-    Utf8(String),
+    Utf8(IStr),
     Integer(i32),
     Float(f32),
     Long(i64),
@@ -161,9 +172,9 @@ impl PoolConstant {
         }
     }
 
-    fn parse_utf8(buf: &mut Bytes) -> String {
+    fn parse_utf8(buf: &mut Bytes) -> IStr {
         let length = buf.get_u16();
         let bytes = buf.copy_to_bytes(length as usize).to_vec();
-        String::from_utf8(bytes).expect("Failed to convert bytes to string!")
+        IStr::from_utf8(bytes.as_slice()).expect("Failed to convert bytes to string!")
     }
 }

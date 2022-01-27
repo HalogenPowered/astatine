@@ -1,6 +1,7 @@
 use bytes::{Buf, Bytes};
-use std::rc::Rc;
 use std::fs;
+use std::sync::Arc;
+use internship::IStr;
 use super::access_flags::*;
 use super::constant_pool::ConstantPool;
 use super::field::Field;
@@ -17,15 +18,14 @@ pub struct Class {
     version: ClassFileVersion,
     access_flags: u16,
     constant_pool: ConstantPool,
-    name: String,
-    super_class: Option<Rc<Class>>,
+    name: IStr,
+    super_class: Option<Arc<Class>>,
     interfaces: Vec<u16>,
     fields: Vec<Field>,
     methods: Vec<Method>,
-    source_file_name: Option<String>,
+    source_file_name: Option<IStr>,
     inner_classes: Vec<InnerClassInfo>,
-    record_components: Vec<RecordComponent>,
-    is_initialized: bool
+    record_components: Vec<RecordComponent>
 }
 
 const MAGIC_CLASS_FILE_VERSION: u32 = 0xCAFEBABE;
@@ -60,8 +60,7 @@ impl Class {
         let this_class = buf.get_u16();
         let name = constant_pool.resolve_class_name(this_class as usize)
             .expect(&format!("Invalid class file {}! Expected class constant to be at index {} in \
-                constant pool!", file_name, this_class))
-            .clone();
+                constant pool!", file_name, this_class));
         let super_class = resolve_superclass(loader, file_name, &name, &constant_pool,
                                              buf.get_u16(), access_flags);
 
@@ -76,22 +75,25 @@ impl Class {
         }
 
         let attribute_count = buf.get_u16();
-        let (source_file_name, inner_classes, record_components) =
-            parse_attributes(file_name, &constant_pool, &mut buf, attribute_count);
+        let (source_file_name, inner_classes, record_components) = parse_attributes(
+            file_name,
+            &constant_pool,
+            &mut buf,
+            attribute_count
+        );
 
         Class {
             version,
             access_flags,
             constant_pool,
-            name: String::from(name),
+            name,
             super_class,
             interfaces,
             fields,
             methods,
-            source_file_name: source_file_name.map(|value| String::from(value)),
+            source_file_name,
             inner_classes: inner_classes.unwrap_or(Vec::new()),
-            record_components: record_components.unwrap_or(Vec::new()),
-            is_initialized: false
+            record_components: record_components.unwrap_or(Vec::new())
         }
     }
 
@@ -100,7 +102,7 @@ impl Class {
         access_flags: u16,
         constant_pool: ConstantPool,
         name: &str,
-        super_class: Option<Rc<Class>>,
+        super_class: Option<Arc<Class>>,
         interfaces: Vec<u16>,
         fields: Vec<Field>,
         methods: Vec<Method>,
@@ -112,15 +114,14 @@ impl Class {
             version,
             access_flags,
             constant_pool,
-            name: String::from(name),
+            name: IStr::new(name),
             super_class,
             interfaces,
             fields,
             methods,
-            source_file_name: source_file_name.map(|value| String::from(value)),
+            source_file_name: source_file_name.map(|value| IStr::new(value)),
             inner_classes,
-            record_components,
-            is_initialized: true
+            record_components
         }
     }
 
@@ -140,8 +141,8 @@ impl Class {
         &self.constant_pool
     }
 
-    pub fn super_class(&self) -> Option<Rc<Class>> {
-        self.super_class.as_ref().map(|value| Rc::clone(value))
+    pub fn super_class(&self) -> Option<Arc<Class>> {
+        self.super_class.as_ref().map(|value| Arc::clone(value))
     }
 
     pub fn field_count(&self) -> usize {
@@ -176,7 +177,7 @@ impl Class {
         self.access_flags & ACC_MODULE != 0
     }
 
-    pub fn is_subclass(&self, other: Rc<Class>) -> bool {
+    pub fn is_subclass(&self, other: Arc<Class>) -> bool {
         if self as *const Class == other.as_ref() as *const Class {
             return true;
         }
@@ -199,19 +200,19 @@ fn resolve_superclass(
     pool: &ConstantPool,
     index: u16,
     flags: u16
-) -> Option<Rc<Class>> {
+) -> Option<Arc<Class>> {
     assert!(flags & ACC_INTERFACE == 0 || index != 0, "Invalid class file {}! Interfaces must \
         always have an explicit superclass!", class_file_name);
     if index == 0 {
-        assert_eq!(name, JAVA_LANG_OBJECT_NAME, "Invalid class file {}! Every class other \
-            than java/lang/Object must have an explicit superclass of java/lang/Object or one of \
-            its subclasses!", class_file_name);
+        assert_eq!(name, JAVA_LANG_OBJECT_NAME, "Invalid class file {}! Every class other than {} \
+            must have an explicit superclass of {} or one of its subclasses!", class_file_name,
+            JAVA_LANG_OBJECT_NAME, JAVA_LANG_OBJECT_NAME);
         return None;
     }
     let class_name = pool.resolve_class_name(index as usize)
         .expect(&format!("Invalid super class for class file {}! Expected index {} to be in \
             constant pool!", class_file_name, index));
-    Some(loader.load_class(class_name))
+    Some(loader.load_class(class_name.as_str()))
 }
 
 impl_nameable!(Class);
@@ -225,7 +226,7 @@ impl_accessible!(Class, InterfaceAnnotationAccessible);
 #[derive(Debug)]
 pub struct InnerClassInfo {
     index: u16,
-    name: String,
+    name: IStr,
     access_flags: u16,
     outer_index: u16
 }
@@ -239,11 +240,11 @@ impl InnerClassInfo {
             .expect(&format!("Invalid inner class for class file {}! Expected name at \
                 index {}!", class_file_name, name_index));
         let access_flags = buf.get_u16();
-        InnerClassInfo::new(index, name, access_flags, outer_index)
+        InnerClassInfo { index, name, access_flags, outer_index }
     }
 
     pub fn new(index: u16, name: &str, access_flags: u16, outer_index: u16) -> Self {
-        InnerClassInfo { index, name: String::from(name), access_flags, outer_index }
+        InnerClassInfo { index, name: IStr::new(name), access_flags, outer_index }
     }
 
     pub fn index(&self) -> u16 {
@@ -269,7 +270,7 @@ fn parse_attributes(
     pool: &ConstantPool,
     buf: &mut Bytes,
     mut attribute_count: u16
-) -> (Option<String>, Option<Vec<InnerClassInfo>>, Option<Vec<RecordComponent>>) {
+) -> (Option<IStr>, Option<Vec<InnerClassInfo>>, Option<Vec<RecordComponent>>) {
     let mut source_file_name = None;
     let mut inner_classes = None;
     let mut record_components = None;
@@ -290,8 +291,7 @@ fn parse_attributes(
             let source_file_index = buf.get_u16();
             let source_file = pool.get_string(source_file_index as usize)
                 .expect(&format!("Invalid source file attribute for class file {}! Expected name \
-                    index {} to be in constant pool!", class_file_name, source_file_index))
-                .clone();
+                    index {} to be in constant pool!", class_file_name, source_file_index));
             source_file_name = Some(source_file);
         } else if attribute_name == TAG_INNER_CLASSES {
             assert!(inner_classes.is_none(), "Duplicate inner classes attribute found for class \

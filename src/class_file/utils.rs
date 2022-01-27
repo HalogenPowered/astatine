@@ -1,4 +1,5 @@
 use bytes::{Buf, Bytes};
+use internship::IStr;
 use crate::types::constant_pool::{ConstantPool, UTF8_TAG};
 
 pub(crate) fn parse_generic_signature(
@@ -7,7 +8,7 @@ pub(crate) fn parse_generic_signature(
     buf: &mut Bytes,
     length: u32,
     type_name: &str
-) -> Option<String> {
+) -> Option<IStr> {
     assert!(length == 2 || buf.len() < 2, "Invalid generic signature attribute for {} in \
         class file {}! Expected length of 2, was {}!", type_name, class_file_name, length);
     let index = buf.get_u16();
@@ -21,5 +22,5 @@ pub(crate) fn parse_generic_signature(
     let value = pool.get_utf8(index as usize);
     assert!(value.is_some(), "Invalid {} in class file {}! Expected generic signature to be at \
         index {}!", type_name, class_file_name, index);
-    value.map(|string| String::from(string))
+    value.map(|string| IStr::new(string))
 }

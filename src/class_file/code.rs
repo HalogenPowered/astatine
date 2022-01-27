@@ -1,15 +1,16 @@
 use std::collections::HashMap;
-use std::rc::Rc;
+use std::sync::Arc;
 use bytes::{Buf, Bytes};
+use internship::IStr;
 use java_desc::FieldType;
 use crate::Class;
 use crate::class_file::class_loader::ClassLoader;
-use super::attribute_tags::*;
-use super::stack_map_table::*;
 use crate::code::stack_frame::StackFrame;
 use crate::types::constant_pool::ConstantPool;
 use crate::types::utils::{FieldTyped, Nameable};
 use crate::utils::buffer::BufferExtras;
+use super::attribute_tags::*;
+use super::stack_map_table::*;
 
 #[derive(Debug)]
 pub struct CodeBlock {
@@ -137,7 +138,7 @@ impl ExceptionHandlerTable {
         self.handlers.get(index)
     }
 
-    pub fn get_handler(&self, exception: Rc<Class>) -> Option<&ExceptionHandlerBlock> {
+    pub fn get_handler(&self, exception: Arc<Class>) -> Option<&ExceptionHandlerBlock> {
         for element in &self.handlers {
             if element.catch_type.as_ref() as *const Class == exception.as_ref() as *const Class {
                 return Some(element);
@@ -152,7 +153,7 @@ pub struct ExceptionHandlerBlock {
     start_pc: u16,
     end_pc: u16,
     handler_pc: u16,
-    catch_type: Rc<Class>
+    catch_type: Arc<Class>
 }
 
 impl ExceptionHandlerBlock {
@@ -166,15 +167,13 @@ impl ExceptionHandlerBlock {
         let end_pc = buf.get_u16();
         let handler_pc = buf.get_u16();
         let catch_type_index = buf.get_u16();
-        let catch_type_name = pool.resolve_class_name(catch_type_index as usize)
+        let catch_type = pool.resolve_class(catch_type_index as usize, loader)
             .expect(&format!("Invalid catch type for class file {}! Expected index {} to be in \
-                constant pool!", class_file_name, catch_type_index))
-            .as_str();
-        let catch_type = loader.load_class(catch_type_name);
+                constant pool!", class_file_name, catch_type_index));
         ExceptionHandlerBlock { start_pc, end_pc, handler_pc, catch_type }
     }
 
-    pub const fn new(start_pc: u16, end_pc: u16, handler_pc: u16, catch_type: Rc<Class>) -> Self {
+    pub const fn new(start_pc: u16, end_pc: u16, handler_pc: u16, catch_type: Arc<Class>) -> Self {
         ExceptionHandlerBlock { start_pc, end_pc, handler_pc, catch_type }
     }
 
@@ -221,7 +220,7 @@ impl LocalVariableTable {
 
 #[derive(Debug)]
 pub struct LocalVariable {
-    name: String,
+    name: IStr,
     descriptor: FieldType,
     start_pc: u16,
     length: u16,
@@ -236,8 +235,7 @@ impl LocalVariable {
         let name_index = buf.get_u16();
         let name = pool.get_string(name_index as usize)
             .expect(&format!("Invalid local variable in table for method in class file {}! Expected \
-                name index {} to be in constant pool!", class_file_name, name_index))
-            .clone();
+                name index {} to be in constant pool!", class_file_name, name_index));
 
         let descriptor_index = buf.get_u16();
         let descriptor = pool.get_utf8(descriptor_index as usize)
@@ -250,7 +248,7 @@ impl LocalVariable {
     }
 
     pub fn new(name: &str, descriptor: FieldType, start_pc: u16, length: u16, index: u16) -> Self {
-        LocalVariable { name: String::from(name), descriptor, start_pc, length, index }
+        LocalVariable { name: IStr::new(name), descriptor, start_pc, length, index }
     }
 
     pub fn start_pc(&self) -> u16 {

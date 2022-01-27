@@ -1,10 +1,11 @@
-use std::rc::Rc;
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
+use internship::IStr;
 use crate::types::class::Class;
 
+#[derive(Debug)]
 pub struct ClassLoader {
-    classes: Mutex<HashMap<String, Rc<Class>>>
+    classes: Mutex<HashMap<IStr, Arc<Class>>>
 }
 
 impl ClassLoader {
@@ -12,11 +13,17 @@ impl ClassLoader {
         ClassLoader { classes: Mutex::new(HashMap::new()) }
     }
 
-    pub fn get_class(&self, name: &str) -> Option<Rc<Class>> {
-        self.classes.lock().unwrap().get(name).map(|value| Rc::clone(value))
+    pub fn get_class(&self, name: &str) -> Option<Arc<Class>> {
+        self.classes.lock()
+            .unwrap()
+            .get(name)
+            .map(|value| Arc::clone(value))
     }
 
-    pub fn load_class(&self, name: &str) -> Rc<Class> {
-        Rc::clone(self.classes.lock().unwrap().entry(String::from(name)).or_insert_with(|| Rc::new(Class::parse(self, name))))
+    pub fn load_class(&self, name: &str) -> Arc<Class> {
+        Arc::clone(self.classes.lock()
+            .unwrap()
+            .entry(IStr::new(name))
+            .or_insert_with(|| Arc::new(Class::parse(self, name))))
     }
 }

@@ -1,26 +1,25 @@
-use std::rc::Rc;
-use std::sync::Mutex;
+use std::sync::{Arc, RwLock};
 use paste::paste;
 use super::object::*;
 use super::reference::Reference;
 
 pub struct HeapSpace {
-    allocated: Mutex<Vec<HeapEntry>>,
+    allocated: RwLock<Vec<HeapEntry>>,
     maximum_size: usize
 }
 
 macro_rules! ref_get_push {
     ($name:ident, $type:ty, $entry:ident) => {
         paste! {
-            pub fn [<get_ $name>](&self, index: usize) -> Reference<Rc<$type>> {
-                match self.allocated.lock().unwrap().get(index) {
-                    Some(HeapEntry::$entry(object)) => Reference::Value(Rc::clone(object)),
+            pub fn [<get_ $name>](&self, index: usize) -> Reference<Arc<$type>> {
+                match self.allocated.read().unwrap().get(index) {
+                    Some(HeapEntry::$entry(object)) => Reference::Value(Arc::clone(object)),
                     _ => Reference::Null
                 }
             }
 
-            pub fn [<push_ $name>](&self, object: Rc<$type>) {
-                self.allocated.lock().unwrap().push(HeapEntry::$entry(object))
+            pub fn [<push_ $name>](&self, object: Arc<$type>) {
+                self.allocated.write().unwrap().push(HeapEntry::$entry(object))
             }
         }
     }
@@ -28,11 +27,11 @@ macro_rules! ref_get_push {
 
 impl HeapSpace {
     pub fn new(maximum_size: usize) -> Self {
-        HeapSpace { allocated: Mutex::new(Vec::new()), maximum_size }
+        HeapSpace { allocated: RwLock::new(Vec::new()), maximum_size }
     }
 
     pub fn len(&self) -> usize {
-        self.allocated.lock().unwrap().len()
+        self.allocated.read().unwrap().len()
     }
 
     ref_get_push!(ref, InstanceObject, Instance);
@@ -41,7 +40,7 @@ impl HeapSpace {
 }
 
 enum HeapEntry {
-    Instance(Rc<InstanceObject>),
-    ReferenceArray(Rc<ReferenceArrayObject>),
-    TypeArray(Rc<TypeArrayObject>)
+    Instance(Arc<InstanceObject>),
+    ReferenceArray(Arc<ReferenceArrayObject>),
+    TypeArray(Arc<TypeArrayObject>)
 }

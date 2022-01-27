@@ -1,4 +1,5 @@
 use bytes::{Buf, Bytes};
+use internship::IStr;
 use java_desc::FieldType;
 use super::constant_pool::ConstantPool;
 use crate::class_file::attribute_tags::TAG_SIGNATURE;
@@ -6,9 +7,9 @@ use crate::class_file::utils::parse_generic_signature;
 
 #[derive(Debug)]
 pub struct RecordComponent {
-    name: String,
+    name: IStr,
     descriptor: FieldType,
-    generic_signature: Option<String>
+    generic_signature: Option<IStr>
 }
 
 impl RecordComponent {
@@ -16,10 +17,9 @@ impl RecordComponent {
         let name_index = buf.get_u16();
         let name = pool.get_string(name_index as usize)
             .expect(&format!("Invalid record component for class_file file {}! Expected name at \
-                index {} in constant pool!", class_file_name, name_index))
-            .clone();
+                index {} in constant pool!", class_file_name, name_index));
         let descriptor_index = buf.get_u16();
-        let descriptor_string = pool.get_string(descriptor_index as usize)
+        let descriptor_string = pool.get_utf8(descriptor_index as usize)
             .expect(&format!("Invalid record component for class_file file {}! Expected \
                 descriptor at index {} in constant pool!", class_file_name, name_index));
         let descriptor = FieldType::parse(descriptor_string)
@@ -33,9 +33,9 @@ impl RecordComponent {
 
     pub fn new(name: &str, descriptor: FieldType, generic_signature: Option<&str>) -> Self {
         RecordComponent {
-            name: String::from(name),
+            name: IStr::new(name),
             descriptor,
-            generic_signature: generic_signature.map(|value| String::from(value))
+            generic_signature: generic_signature.map(|value| IStr::new(value))
         }
     }
 }
@@ -47,7 +47,7 @@ fn parse_attributes(
     pool: &ConstantPool,
     buf: &mut Bytes,
     mut attribute_count: u16
-) -> Option<String> {
+) -> Option<IStr> {
     let mut generic_signature = None;
 
     while attribute_count > 0 {

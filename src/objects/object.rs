@@ -1,9 +1,6 @@
-use std::cell::RefCell;
-use std::rc::Rc;
+use std::sync::{Arc, RwLock};
 use crate::types::class::Class;
 use crate::utils::vm_types::ArrayType;
-use super::heap::HeapSpace;
-use super::reference::Reference;
 
 /// Represents something that has been allocated on the heap by the VM, such as an object
 /// or an array.
@@ -16,7 +13,7 @@ pub trait HeapObject {
 }
 
 pub trait ReferenceHeapObject: HeapObject {
-    fn class(&self) -> Rc<Class>;
+    fn class(&self) -> Arc<Class>;
 }
 
 macro_rules! impl_getter_setter {
@@ -94,11 +91,11 @@ macro_rules! impl_getter_setter {
         }
 
         pub fn get(&self, index: usize) -> u32 {
-            self.$field_name.borrow().get(index).map_or(0, |value| *value)
+            self.$field_name.read().unwrap().get(index).map_or(0, |value| *value)
         }
 
         pub fn put(&self, index: usize, value: u32) {
-            self.$field_name.borrow_mut().insert(index, value);
+            self.$field_name.write().unwrap().insert(index, value);
         }
     }
 }
@@ -112,8 +109,8 @@ macro_rules! impl_heap_object {
         }
 
         impl ReferenceHeapObject for $T {
-            fn class(&self) -> Rc<Class> {
-                Rc::clone(&self.class)
+            fn class(&self) -> Arc<Class> {
+                Arc::clone(&self.class)
             }
         }
     }
@@ -123,16 +120,16 @@ macro_rules! impl_heap_object {
 //  offer greater performance and lower memory footprint.
 pub struct InstanceObject {
     offset: usize,
-    class: Rc<Class>,
-    fields: RefCell<Vec<u32>>
+    class: Arc<Class>,
+    fields: RwLock<Vec<u32>>
 }
 
 impl InstanceObject {
-    pub fn new(offset: usize, class: Rc<Class>, field_count: usize) -> Self {
+    pub fn new(offset: usize, class: Arc<Class>, field_count: usize) -> Self {
         InstanceObject {
             offset,
             class,
-            fields: RefCell::new(Vec::with_capacity(field_count))
+            fields: RwLock::new(Vec::with_capacity(field_count))
         }
     }
 
@@ -145,23 +142,25 @@ impl_heap_object!(InstanceObject);
 //  offer greater performance and lower memory footprint.
 pub struct ReferenceArrayObject {
     offset: usize,
-    class: Rc<Class>,
-    element_class: Rc<Class>,
-    elements: RefCell<Vec<Rc<InstanceObject>>>
+    class: Arc<Class>,
+    element_class: Arc<Class>,
+    length: usize,
+    elements: RwLock<Vec<Arc<InstanceObject>>>
 }
 
 impl ReferenceArrayObject {
     pub fn new(
         offset: usize,
-        class: Rc<Class>,
-        element_class: Rc<Class>,
-        size: usize
+        class: Arc<Class>,
+        element_class: Arc<Class>,
+        length: usize
     ) -> Self {
         ReferenceArrayObject {
             offset,
             class,
             element_class,
-            elements: RefCell::new(Vec::with_capacity(size))
+            length,
+            elements: RwLock::new(Vec::with_capacity(length))
         }
     }
 
@@ -170,16 +169,16 @@ impl ReferenceArrayObject {
     }
 
     pub fn len(&self) -> usize {
-        self.elements.borrow().len()
+        self.length
     }
 
-    pub fn get(&self, index: usize) -> Option<Rc<InstanceObject>> {
-        self.elements.borrow().get(index).map(|value| Rc::clone(value))
+    pub fn get(&self, index: usize) -> Option<Arc<InstanceObject>> {
+        self.elements.read().unwrap().get(index).map(|value| Arc::clone(value))
     }
 
     #[allow(unused_must_use)]
     pub fn set(&self, index: usize, value: Rc<InstanceObject>) {
-        self.elements.borrow_mut().insert(index, value);
+        self.elements.write().unwrap().insert(index, value);
     }
 }
 
@@ -190,12 +189,13 @@ impl_heap_object!(ReferenceArrayObject);
 pub struct TypeArrayObject {
     offset: usize,
     array_type: ArrayType,
-    elements: RefCell<Vec<u32>>
+    length: usize,
+    elements: RwLock<Vec<u32>>
 }
 
 impl TypeArrayObject {
-    pub fn new(offset: usize, array_type: ArrayType, size: usize) -> Self {
-        TypeArrayObject { offset, array_type, elements: RefCell::new(Vec::with_capacity(size)) }
+    pub fn new(offset: usize, array_type: ArrayType, length: usize) -> Self {
+        TypeArrayObject { offset, array_type, length, elements: RwLock::new(Vec::with_capacity(length)) }
     }
 
     pub fn array_type(&self) -> ArrayType {
@@ -203,7 +203,7 @@ impl TypeArrayObject {
     }
 
     pub fn len(&self) -> usize {
-        self.elements.borrow().len()
+        self.length
     }
 
     impl_getter_setter!(elements);

@@ -13,6 +13,7 @@ name = "astatine"
 version = "0.1.0"
 dependencies = [
  "bytes",
+ "internship",
  "java-desc",
  "jni",
  "paste",
@@ -50,6 +51,15 @@ checksum = "50b727aacc797f9fc28e355d21f34709ac4fc9adecfe470ad07b8f4464f53062"
 dependencies = [
  "bytes",
  "memchr",
+]
+
+[[package]]
+name = "internship"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b75b80c06d9124692b2927086ed75c8721d4061f9c159d9675d3f6d63729b597"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
@@ -158,6 +168,12 @@ checksum = "93fc1dc3aaa9bfed95e02e6eadabb4baf7e3078b0bd1b4d7b6b0b68378900502"
 dependencies = [
  "winapi-util",
 ]
+
+[[package]]
+name = "serde"
+version = "1.0.136"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ce31e24b01e1e524df96f1c2fdd054405f8d7376249a5110886fb4b658484789"
 
 [[package]]
 name = "static_assertions"

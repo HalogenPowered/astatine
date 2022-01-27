@@ -1,4 +1,5 @@
 use bytes::{Buf, Bytes};
+use internship::IStr;
 use java_desc::{FieldType, SingleType};
 use super::access_flags::*;
 use super::constant_pool::*;
@@ -8,9 +9,9 @@ use crate::class_file::version::ClassFileVersion;
 
 #[derive(Debug)]
 pub struct Field {
-    name: String,
+    name: IStr,
     descriptor: FieldType,
-    generic_signature: Option<String>,
+    generic_signature: Option<IStr>,
     access_flags: u16,
     constant_value: Option<ConstantValue>
 }
@@ -37,8 +38,7 @@ impl Field {
         let name_index = buf.get_u16();
         let name = pool.get_string(name_index as usize)
             .expect(&format!("Invalid field in class file {}! Expected name at index {} in \
-                constant pool!", class_file_name, name_index))
-            .clone();
+                constant pool!", class_file_name, name_index));
 
         let descriptor_index = buf.get_u16();
         let descriptor_string = pool.get_utf8(descriptor_index as usize)
@@ -58,23 +58,17 @@ impl Field {
             is_static,
             &descriptor
         );
-        Field { name, descriptor, generic_signature, access_flags, constant_value }
+        Field::new(name, descriptor, generic_signature, access_flags, constant_value)
     }
 
     pub fn new(
-        name: &str,
+        name: IStr,
         descriptor: FieldType,
-        generic_signature: Option<&str>,
+        generic_signature: Option<IStr>,
         access_flags: u16,
         constant_value: Option<ConstantValue>
     ) -> Self {
-        Field {
-            name: String::from(name),
-            descriptor,
-            generic_signature: generic_signature.map(|value| String::from(value)),
-            access_flags,
-            constant_value
-        }
+        Field { name, descriptor, generic_signature, access_flags, constant_value }
     }
 
     pub fn constant_value(&self) -> Option<&ConstantValue> {
@@ -86,9 +80,9 @@ impl Field {
     is_constant!(constant_float, f32, Float);
     is_constant!(constant_double, f64, Double);
 
-    pub fn constant_string(&self) -> Option<&str> {
+    pub fn constant_string(&self) -> Option<IStr> {
         match &self.constant_value {
-            Some(ConstantValue::String(value)) => Some(value.as_str()),
+            Some(ConstantValue::String(value)) => Some(value.clone()),
             _ => None
         }
     }
@@ -117,7 +111,7 @@ fn parse_attributes(
     mut attributes_count: u16,
     is_static: bool,
     descriptor: &FieldType
-) -> (Option<ConstantValue>, Option<String>) {
+) -> (Option<ConstantValue>, Option<IStr>) {
     let mut constant_value = None;
     let mut generic_signature = None;
 
@@ -167,7 +161,7 @@ pub enum ConstantValue {
     Long(i64),
     Float(f32),
     Double(f64),
-    String(String)
+    String(IStr)
 }
 
 const STRING_DESCRIPTOR: &str = "Ljava/lang/String;";
@@ -209,7 +203,7 @@ impl ConstantValue {
             SingleType::Reference(name) => {
                 assert!(value_type == CLASS_TAG && name == STRING_DESCRIPTOR, "Invalid initial \
                     string value!");
-                pool.get_utf8(index as usize).map(|value| ConstantValue::String(String::from(value)))
+                pool.get_string(index as usize).map(|value| ConstantValue::String(value))
             }
         }
     }
