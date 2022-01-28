@@ -20,7 +20,7 @@ pub struct Class {
     constant_pool: ConstantPool,
     name: IStr,
     super_class: Option<Arc<Class>>,
-    interfaces: Vec<u16>,
+    interfaces: Vec<Arc<Class>>,
     fields: Vec<Field>,
     methods: Vec<Method>,
     source_file_name: Option<IStr>,
@@ -64,15 +64,18 @@ impl Class {
         let super_class = resolve_superclass(loader, file_name, &name, &constant_pool,
                                              buf.get_u16(), access_flags);
 
-        let interfaces = buf.get_u16_array();
-        let fields = buf.get_generic_u16_array(|buf| {
-            Field::parse(file_name, &constant_pool, buf, &version)
+        let interfaces = buf.get_generic_u16_array(|buf| {
+            let index = buf.get_u16();
+            constant_pool.resolve_class(index as usize, loader)
+                .expect(&format!("Invalid class file {}! Expected super interface index {} to be \
+                    in constant pool!", file_name, index))
         });
-        let method_count = buf.get_u16();
-        let mut methods = Vec::with_capacity(method_count as usize);
-        for _ in 0..method_count {
-            methods.push(Method::parse(loader, file_name, &constant_pool, &mut buf, &version, access_flags))
-        }
+        let fields = buf.get_generic_u16_array(|buf| {
+            Field::parse(file_name, &constant_pool, buf, &version, access_flags)
+        });
+        let methods = buf.get_generic_u16_array(|buf| {
+            Method::parse(loader, file_name, &constant_pool, buf, &version, access_flags)
+        });
 
         let attribute_count = buf.get_u16();
         let (source_file_name, inner_classes, record_components) = parse_attributes(
@@ -82,6 +85,7 @@ impl Class {
             attribute_count
         );
 
+        assert_eq!(buf.remaining(), 0, "Extra bytes found in class file {}!", file_name);
         Class {
             version,
             access_flags,
@@ -103,7 +107,7 @@ impl Class {
         constant_pool: ConstantPool,
         name: &str,
         super_class: Option<Arc<Class>>,
-        interfaces: Vec<u16>,
+        interfaces: Vec<Arc<Class>>,
         fields: Vec<Field>,
         methods: Vec<Method>,
         source_file_name: Option<&str>,

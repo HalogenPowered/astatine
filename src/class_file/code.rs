@@ -24,6 +24,8 @@ pub struct CodeBlock {
     stack_map_table: Option<StackMapTable>
 }
 
+const MAX_CODE_BYTES: usize = 65535;
+
 impl CodeBlock {
     pub(crate) fn parse(
         loader: &ClassLoader,
@@ -34,6 +36,8 @@ impl CodeBlock {
         let max_stack = buf.get_u16();
         let max_locals = buf.get_u16();
         let code_length = buf.get_u32() as usize;
+        assert!(code_length > 0 && code_length <= MAX_CODE_BYTES, "Invalid code attribute in \
+            class file {}! Code length must be > 0 and < {}!", class_file_name, MAX_CODE_BYTES);
         let code = buf.get_u8_array(code_length);
         let exception_handlers = ExceptionHandlerTable::parse(loader, class_file_name, pool, buf);
         let attribute_count = buf.get_u16();
@@ -157,17 +161,12 @@ pub struct ExceptionHandlerBlock {
 }
 
 impl ExceptionHandlerBlock {
-    pub(crate) fn parse(
-        loader: &ClassLoader,
-        class_file_name: &str,
-        pool: &ConstantPool,
-        buf: &mut Bytes
-    ) -> Self {
+    pub(crate) fn parse(class_file_name: &str, pool: &ConstantPool, buf: &mut Bytes) -> Self {
         let start_pc = buf.get_u16();
         let end_pc = buf.get_u16();
         let handler_pc = buf.get_u16();
         let catch_type_index = buf.get_u16();
-        let catch_type = pool.resolve_class(catch_type_index as usize, loader)
+        let catch_type = pool.resolve_class(catch_type_index as usize)
             .expect(&format!("Invalid catch type for class file {}! Expected index {} to be in \
                 constant pool!", class_file_name, catch_type_index));
         ExceptionHandlerBlock { start_pc, end_pc, handler_pc, catch_type }

@@ -7,6 +7,8 @@ use crate::utils::vm_types::ArrayType;
 pub trait HeapObject {
     fn offset(&self) -> usize;
 
+    fn len(&self) -> usize;
+
     fn equals(&self, other: &Self) -> bool {
         self as *const Self == other as *const Self
     }
@@ -55,46 +57,47 @@ macro_rules! impl_getter_setter {
             f64::from_bits((most << 32) | least)
         }
 
-        pub fn put_bool(&self, index: usize, value: bool) {
-            self.put(index, value as u32);
+        pub fn set_bool(&self, index: usize, value: bool) {
+            self.set(index, value as u32);
         }
 
-        pub fn put_byte(&self, index: usize, value: i8) {
-            self.put(index, value as u32);
+        pub fn set_byte(&self, index: usize, value: i8) {
+            self.set(index, value as u32);
         }
 
-        pub fn put_char(&self, index: usize, value: char) {
-            self.put(index, value as u32);
+        pub fn set_char(&self, index: usize, value: char) {
+            self.set(index, value as u32);
         }
 
-        pub fn put_short(&self, index: usize, value: i16) {
-            self.put(index, value as u32);
+        pub fn set_short(&self, index: usize, value: i16) {
+            self.set(index, value as u32);
         }
 
-        pub fn put_int(&self, index: usize, value: i32) {
-            self.put(index, value as u32);
+        pub fn set_int(&self, index: usize, value: i32) {
+            self.set(index, value as u32);
         }
 
-        pub fn put_float(&self, index: usize, value: f32) {
-            self.put(index, value.to_bits());
+        pub fn set_float(&self, index: usize, value: f32) {
+            self.set(index, value.to_bits());
         }
 
-        pub fn put_long(&self, index: usize, value: i64) {
-            self.put(index, (value >> 32) as u32);
-            self.put(index + 1, value as u32);
+        pub fn set_long(&self, index: usize, value: i64) {
+            self.set(index, (value >> 32) as u32);
+            self.set(index + 1, value as u32);
         }
 
-        pub fn put_double(&self, index: usize, value: f64) {
+        pub fn set_double(&self, index: usize, value: f64) {
             let bits = value.to_bits();
-            self.put(index, (bits >> 32) as u32);
-            self.put(index + 1, bits as u32);
+            self.set(index, (bits >> 32) as u32);
+            self.set(index + 1, bits as u32);
         }
 
         pub fn get(&self, index: usize) -> u32 {
             self.$field_name.read().unwrap().get(index).map_or(0, |value| *value)
         }
 
-        pub fn put(&self, index: usize, value: u32) {
+        pub fn set(&self, index: usize, value: u32) {
+            assert!(index < self.len(), "Index {} out of bounds for length {}!", index, self.len());
             self.$field_name.write().unwrap().insert(index, value);
         }
     }
@@ -105,6 +108,10 @@ macro_rules! impl_heap_object {
         impl HeapObject for $T {
             fn offset(&self) -> usize {
                 self.offset
+            }
+
+            fn len(&self) -> usize {
+                self.length
             }
         }
 
@@ -121,15 +128,17 @@ macro_rules! impl_heap_object {
 pub struct InstanceObject {
     offset: usize,
     class: Arc<Class>,
+    length: usize,
     fields: RwLock<Vec<u32>>
 }
 
 impl InstanceObject {
-    pub fn new(offset: usize, class: Arc<Class>, field_count: usize) -> Self {
+    pub fn new(offset: usize, class: Arc<Class>, length: usize) -> Self {
         InstanceObject {
             offset,
             class,
-            fields: RwLock::new(Vec::with_capacity(field_count))
+            length,
+            fields: RwLock::new(Vec::with_capacity(length))
         }
     }
 
@@ -168,16 +177,13 @@ impl ReferenceArrayObject {
         &self.element_class
     }
 
-    pub fn len(&self) -> usize {
-        self.length
-    }
-
     pub fn get(&self, index: usize) -> Option<Arc<InstanceObject>> {
         self.elements.read().unwrap().get(index).map(|value| Arc::clone(value))
     }
 
     #[allow(unused_must_use)]
-    pub fn set(&self, index: usize, value: Rc<InstanceObject>) {
+    pub fn set(&self, index: usize, value: Arc<InstanceObject>) {
+        assert!(index < self.length, "Index {} out of bounds for length {}!", index, self.length);
         self.elements.write().unwrap().insert(index, value);
     }
 }
@@ -202,15 +208,15 @@ impl TypeArrayObject {
         self.array_type
     }
 
-    pub fn len(&self) -> usize {
-        self.length
-    }
-
     impl_getter_setter!(elements);
 }
 
 impl HeapObject for TypeArrayObject {
     fn offset(&self) -> usize {
         self.offset
+    }
+
+    fn len(&self) -> usize {
+        self.length
     }
 }

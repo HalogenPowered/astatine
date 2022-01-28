@@ -1,4 +1,5 @@
 use bytes::{Buf, Bytes};
+use enum_as_inner::EnumAsInner;
 use crate::utils::buffer::BufferExtras;
 
 #[derive(Debug)]
@@ -24,7 +25,7 @@ impl StackMapTable {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, EnumAsInner)]
 pub enum StackFrameType {
     Same,
     SameLocalsOneStack,
@@ -132,7 +133,7 @@ const ITEM_UNINITIALIZED_THIS: u8 = 6;
 const ITEM_OBJECT: u8 = 7;
 const ITEM_UNINITIALIZED: u8 = 8;
 
-#[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Copy, Clone)]
+#[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Copy, Clone, EnumAsInner)]
 pub enum VerificationType {
     Top,
     Integer,

@@ -33,7 +33,7 @@ macro_rules! load_store_array_primitive {
                 Interpreter::array_primitive(context, frame,
                                              &format!("{}ASTORE", $instruction_prefix), $expected,
                                              |array_type| matches!(array_type, $array_type),
-                                             |frame, array, index| array.[<put_ $name>](index, frame.[<pop_ $name _op>]()));
+                                             |frame, array, index| array.[<set_ $name>](index, frame.[<pop_ $name _op>]()));
             }
         }
     };
@@ -260,8 +260,8 @@ impl Interpreter {
     fn store_array_byte(context: &InterpreterContext, frame: &mut StackFrame) {
         Interpreter::common_array_primitive(context, frame, |frame, array, array_type, index| {
             match array_type {
-                ArrayType::Byte => array.put_byte(index, frame.pop_byte_op()),
-                ArrayType::Boolean => array.put_bool(index, frame.pop_bool_op()),
+                ArrayType::Byte => array.set_byte(index, frame.pop_byte_op()),
+                ArrayType::Boolean => array.set_bool(index, frame.pop_bool_op()),
                 _ => panic!("Invalid type of array for BASTORE! Expected array to be of type \
                     byte or boolean, was {}!", array_type)
             }
@@ -283,8 +283,7 @@ impl Interpreter {
         let reference = reference.unwrap();
 
         let class_index = ((parser.next() as u16) << 8) | (parser.next() as u16);
-        let class = context.class.constant_pool()
-            .resolve_class(class_index as usize, context.loader.borrow())
+        let class = context.class.constant_pool().resolve_class(class_index as usize)
             .expect(&format!("Invalid cast check! Expected index {} to be in constant \
                 pool!", class_index));
         assert!(reference.class().is_subclass(Arc::clone(&class)), "Cannot cast {} to {}!",
@@ -420,7 +419,7 @@ impl Interpreter {
         }
         let reference = reference.unwrap();
 
-        let class = context.class.constant_pool().resolve_class(index as usize, context.loader.borrow())
+        let class = context.class.constant_pool().resolve_class(index as usize)
             .expect(&format!("Invalid class for instanceof check! Expected index {} to be in \
                 constant pool!", index));
         let result = if reference.class().is_subclass(class) { 1 } else { 0 };
@@ -474,7 +473,7 @@ impl Interpreter {
 
     fn new_ref<'a>(context: &InterpreterContext, frame: &mut StackFrame, parser: &mut CodeParser<'a>) {
         let index = ((parser.next() as u16) << 8) | (parser.next() as u16);
-        let class = context.class.constant_pool().resolve_class(index as usize, context.loader.borrow())
+        let class = context.class.constant_pool().resolve_class(index as usize)
             .expect(&format!("Invalid object instantiation! Expected index {} to be in constant \
                 pool!", index));
         if class.is_interface() || class.is_abstract() {
@@ -487,7 +486,7 @@ impl Interpreter {
         for i in 0..field_count {
             // Everything gets initialised to default values. For primitives, this is 0.
             // For references, this is null, but the offset of null references is 0.
-            instance.put(i, 0);
+            instance.set(i, 0);
         }
 
         context.heap.push_ref(Arc::new(instance));
@@ -497,7 +496,7 @@ impl Interpreter {
     fn new_ref_array<'a>(context: &InterpreterContext, frame: &mut StackFrame, parser: &mut CodeParser<'a>) {
         let count = frame.pop_int_op();
         let index = ((parser.next() as u16) << 8) | (parser.next() as u16);
-        let class = context.class.constant_pool().resolve_class(index as usize, context.loader.borrow())
+        let class = context.class.constant_pool().resolve_class(index as usize)
             .expect(&format!("Invalid class type index {}!", index));
 
         let offset = context.heap.len(); // Index of next element will be the current length
@@ -744,6 +743,7 @@ const IFNONNULL: u8 = 199;
 const GOTO_W: u8 = 200;
 const JSR_W: u8 = 201;
 //const BREAKPOINT: u8 = 202; // Debug only
+pub const NUMBER_OF_JAVA_OP_CODES: u8 = 203;
 
 macro_rules! generate_load_store_index {
     ($name:ident, $prefix:ident) => {

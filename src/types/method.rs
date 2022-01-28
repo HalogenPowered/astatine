@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use bytes::{Buf, Bytes};
 use internship::IStr;
 use java_desc::MethodType;
@@ -9,6 +10,7 @@ use crate::class_file::code::CodeBlock;
 use crate::class_file::utils::parse_generic_signature;
 use crate::class_file::version::ClassFileVersion;
 use crate::ClassLoader;
+use crate::objects::handles::MethodHandle;
 use crate::utils::constants::*;
 
 #[derive(Debug)]
@@ -50,21 +52,25 @@ impl Method {
 
         let mut other_flags: u8 = 0;
         if name == CLASS_INITIALIZER_METHOD_NAME {
-            other_flags |= METHOD_IS_CONSTRUCTOR;
+            assert!(descriptor.ret.is_none() && (version >= &ClassFileVersion::RELEASE_7 &&
+                descriptor.params.is_empty()), "Invalid method descriptor {:?} for static \
+                initializer ({})! Static initializer must take no parameters and return \
+                void!", descriptor, CLASS_INITIALIZER_METHOD_NAME);
+            other_flags |= METHOD_IS_STATIC_INITIALIZER;
             if version < &ClassFileVersion::RELEASE_7 {
                 access_flags = ACC_STATIC;
             } else if (access_flags & ACC_STATIC) == ACC_STATIC {
                 let extra_flag = if version <= &ClassFileVersion::RELEASE_16 { ACC_STRICT } else { 0 };
                 access_flags &= ACC_STATIC | extra_flag;
             } else {
-                panic!("Invalid static initializer method ({}) in class file {}! Must be static!",
-                       CLASS_INITIALIZER_METHOD_NAME, class_file_name);
+                panic!("Invalid static initializer method ({}) in class file {}! Must be \
+                    static!", CLASS_INITIALIZER_METHOD_NAME, class_file_name);
             }
         } else {
             verify_method_flags(class_file_name, version, class_flags, access_flags, &name);
         }
         if name == OBJECT_INITIALIZER_METHOD_NAME {
-            other_flags |= METHOD_IS_STATIC_INITIALIZER;
+            other_flags |= METHOD_IS_CONSTRUCTOR;
             assert_eq!(class_flags & ACC_INTERFACE, 0, "Invalid class file {}! Interface cannot \
                 have a constructor!", class_file_name);
         }
@@ -79,6 +85,12 @@ impl Method {
             access_flags,
             attribute_count
         );
+        if access_flags & ACC_ABSTRACT == 0 && access_flags & ACC_NATIVE == 0 {
+            assert!(code.is_some(), "Non-abstract and non-native methods must have code \
+                attributes!");
+        } else {
+            assert!(code.is_none(), "Abstract and native methods must not have code attributes!");
+        }
         Method {
             name,
             descriptor,
@@ -166,6 +178,12 @@ impl_accessible!(Method, AbstractAccessible);
 impl_accessible!(Method, PrivateProtectedStaticAccessible);
 
 #[derive(Debug)]
+pub struct BootstrapMethod {
+    handle: Arc<MethodHandle>,
+    arguments: Vec<u16>
+}
+
+#[derive(Debug)]
 pub struct MethodParameter {
     name: IStr,
     access_flags: u16
@@ -206,8 +224,8 @@ fn parse_attributes(
     let mut generic_signature = None;
 
     while attribute_count > 0 {
-        assert!(buf.len() >= 6, "Truncated method attributes for method in class file {}!",
-                class_file_name);
+        assert!(buf.len() >= 6, "Truncated method attributes for method in class \
+            file {}!", class_file_name);
         let attribute_name_index = buf.get_u16();
         let attribute_length = buf.get_u32();
         let attribute_name = pool.get_utf8(attribute_name_index as usize)
@@ -215,8 +233,8 @@ fn parse_attributes(
                 to be in constant pool!", attribute_name_index, class_file_name));
 
         if attribute_name == TAG_CODE {
-            assert!(code.is_none(), "Expected single code attribute for method in class file {}!",
-                    class_file_name);
+            assert!(code.is_none(), "Expected single code attribute for method in class \
+                file {}!", class_file_name);
             assert!(access_flags & ACC_NATIVE == 0 && access_flags & ACC_ABSTRACT == 0, "Invalid \
                 code attribute for method in class file {}! Abstract and native methods must not \
                 have code attributes!", class_file_name);
@@ -307,8 +325,8 @@ fn verify_method_flags(
                 (major_1_5_or_above && (is_synchronized || (!major_17_or_above && is_strict)))));
     }
 
-    assert!(!is_illegal, "Invalid method in class file {}! Access modifiers {} are illegal!",
-            class_file_name, flags);
+    assert!(!is_illegal, "Invalid method in class file {}! Access modifiers {} are \
+        illegal!", class_file_name, flags);
 }
 
 fn has_illegal_visibility(flags: u16) -> bool {

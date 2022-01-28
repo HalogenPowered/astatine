@@ -27,14 +27,23 @@ macro_rules! is_constant {
     }
 }
 
+pub(self) const PUBLIC_STATIC_FINAL: u16 = ACC_PUBLIC | ACC_STATIC | ACC_FINAL;
+
 impl Field {
     pub(crate) fn parse(
         class_file_name: &str,
         pool: &ConstantPool,
         buf: &mut Bytes,
-        version: &ClassFileVersion
+        version: &ClassFileVersion,
+        class_flags: u16
     ) -> Self {
         let access_flags = buf.get_u16();
+        if class_flags & ACC_INTERFACE != 0 {
+            assert_eq!(access_flags, PUBLIC_STATIC_FINAL, "Invalid field in class file {}! All \
+                fields in interfaces must be public static final and not have any other \
+                modifiers!", class_file_name);
+        }
+
         let name_index = buf.get_u16();
         let name = pool.get_string(name_index as usize)
             .expect(&format!("Invalid field in class file {}! Expected name at index {} in \
@@ -164,17 +173,17 @@ pub enum ConstantValue {
     String(IStr)
 }
 
-const STRING_DESCRIPTOR: &str = "Ljava/lang/String;";
+pub(self) const STRING_DESCRIPTOR: &str = "Ljava/lang/String;";
 
 impl ConstantValue {
-    pub(crate) fn parse(
+    fn parse(
         class_file_name: &str,
         pool: &ConstantPool,
         index: u16,
         descriptor: &FieldType
     ) -> Option<Self> {
-        assert!(index > 0 && index < (pool.len() as u16), "Bad constant value! Failed to \
-            find value at index {}!", index);
+        assert!(index > 0 && index < (pool.len() as u16), "Bad constant value! Failed to find \
+            value at index {}!", index);
 
         let value_type = pool.get_tag(index as usize)
             .expect(&format!("Invalid constant value for field in class file {}! Expected tag for \
@@ -197,12 +206,13 @@ impl ConstantValue {
             },
             SingleType::Byte | SingleType::Char | SingleType::Short | SingleType::Boolean |
             SingleType::Int => {
-                assert_eq!(value_type, INT_TAG, "Inconsistent constant value");
+                assert_eq!(value_type, INT_TAG, "Inconsistent constant value type! Expected \
+                    integer");
                 pool.get_int(index as usize).map(|value| ConstantValue::Integer(value))
             },
             SingleType::Reference(name) => {
-                assert!(value_type == CLASS_TAG && name == STRING_DESCRIPTOR, "Invalid initial \
-                    string value!");
+                assert!(value_type == CLASS_TAG && name == STRING_DESCRIPTOR, "Inconsistent \
+                    constant value type or descriptor! Expected string!");
                 pool.get_string(index as usize).map(|value| ConstantValue::String(value))
             }
         }
