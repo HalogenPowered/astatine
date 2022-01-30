@@ -1,10 +1,10 @@
 use bytes::{Buf, Bytes};
 use internship::IStr;
-use super::access_flags::*;
-use super::constant_pool::{MODULE_TAG, PACKAGE_TAG};
 use crate::class_file::version::ClassFileVersion;
 use crate::types::constant_pool::ConstantPool;
 use crate::utils::buffer::BufferExtras;
+use super::access_flags::*;
+use super::constant_pool::{MODULE_TAG, PACKAGE_TAG};
 
 pub struct Module {
     name: IStr,

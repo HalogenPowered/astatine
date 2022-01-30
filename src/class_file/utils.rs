@@ -22,5 +22,5 @@ pub(crate) fn parse_generic_signature(
     let value = pool.get_utf8(index as usize);
     assert!(value.is_some(), "Invalid {} in class file {}! Expected generic signature to be at \
         index {}!", type_name, class_file_name, index);
-    value.map(|string| IStr::new(string))
+    value
 }

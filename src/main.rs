@@ -1,4 +1,5 @@
 use std::io;
+use std::sync::Arc;
 use crate::class_file::class_loader::ClassLoader;
 use crate::types::class::Class;
 
@@ -13,7 +14,7 @@ fn main() {
     io::stdin().read_line(&mut buffer).expect("Expected input!");
     let input = buffer.trim_end();
     println!("{}", input);
-    let mut loader = ClassLoader::new();
-    let class = Class::parse(&mut loader, &input);
+    let loader = Arc::new(ClassLoader::new());
+    let class = Arc::new(Class::parse(loader, input)).initialize();
     println!("{:#?}", class);
 }

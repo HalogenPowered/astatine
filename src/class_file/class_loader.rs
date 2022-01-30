@@ -20,10 +20,10 @@ impl ClassLoader {
             .map(|value| Arc::clone(value))
     }
 
-    pub fn load_class(&self, name: &str) -> Arc<Class> {
+    pub fn load_class(self: Arc<ClassLoader>, name: &str) -> Arc<Class> {
         Arc::clone(self.classes.lock()
             .unwrap()
             .entry(IStr::new(name))
-            .or_insert_with(|| Arc::new(Class::parse(self, name))))
+            .or_insert_with(|| Arc::new(Class::parse(Arc::clone(&self), name))))
     }
 }

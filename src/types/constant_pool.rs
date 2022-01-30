@@ -1,13 +1,14 @@
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, RwLock};
 use bytes::{Buf, Bytes};
 use enum_as_inner::EnumAsInner;
 use internship::IStr;
-use java_desc::{Descriptor, FieldType, MethodType};
+use java_desc::{FieldType, MethodType};
 use paste::paste;
 use crate::{Class, ClassLoader};
-use crate::class_file::version::ClassFileVersion;
 use crate::objects::handles::{FieldRef, MethodHandle, MethodRef};
 use crate::types::method::BootstrapMethod;
+use crate::utils::lateinit::LateInit;
 
 macro_rules! get_constant {
     ($name:ident, $ty:ty) => {
@@ -19,45 +20,81 @@ macro_rules! get_constant {
     }
 }
 
-macro_rules! get_ref {
-    ($name:ident, $ty:ty, $as_name:ident) => {
+macro_rules! get_index {
+    ($name:ident) => {
         paste! {
-            pub fn [<get_ $name>](&self, index: usize) -> Option<Arc<$ty>> {
-                self.get(index).and_then(|value| value.[<as_ $name>]()).map(|value| Arc::clone(value))
+            fn [<get_ $name _index>](&self, index: usize) -> Option<u16> {
+                self.get(index).and_then(|value| value.[<as_ $name>]()).map(|value| *value)
             }
         }
     }
 }
 
+macro_rules! get_tuple_index {
+    ($name:ident, $as_name:ident) => {
+        paste! {
+            fn [<get_ $name _indices>](&self, index: usize) -> Option<(u16, u16)> {
+                self.get(index)
+                    .and_then(|value| value.$as_name())
+                    .map(|value| (*value.0, *value.1))
+            }
+        }
+    };
+    ($name:ident) => {
+        paste! { get_tuple_index!($name, [<as_ $name>]); }
+    }
+}
+
 #[derive(Debug)]
 pub struct ConstantPool {
+    holder: LateInit<Arc<Class>>,
     tags: Vec<u8>,
-    constants: Vec<PoolConstant>
+    constants: Vec<PoolConstant>,
+    resolution_cache: RwLock<HashMap<usize, Option<ResolvedPoolConstant>>>,
+    has_dynamic: bool
 }
 
 impl ConstantPool {
-    pub(crate) fn parse(
-        buf: &mut Bytes,
-        loader: &ClassLoader,
-        methods: &Vec<Arc<BootstrapMethod>>,
-        version: &ClassFileVersion
-    ) -> Self {
+    pub(crate) fn parse(buf: &mut Bytes) -> Self {
         let count = buf.get_u16();
         let mut tags = Vec::with_capacity(count as usize);
         let mut constants = Vec::with_capacity(count as usize);
-        for _ in 0..count - 1 {
+
+        let mut index = 1;
+        let mut has_dynamic = false;
+        while index < count {
             let tag = buf.get_u8();
+            if tag == DYNAMIC_TAG || tag == INVOKE_DYNAMIC_TAG { has_dynamic = true }
             tags.push(tag);
-            let constant = PoolConstant::parse(tag, buf, methods, loader, &constants, version);
-            constants.push(constant);
+            constants.push(PoolConstant::parse(tag, buf));
+            if tag == LONG_TAG || tag == DOUBLE_TAG { index += 2 } else { index += 1 }
         }
+
         // No funny business on my watch!
         assert_eq!(tags.len(), constants.len(), "Tags and constants size mismatch!");
-        ConstantPool::new(tags, constants)
+        ConstantPool::new(tags, constants, has_dynamic)
     }
 
-    pub const fn new(tags: Vec<u8>, constants: Vec<PoolConstant>) -> Self {
-        ConstantPool { tags, constants }
+    fn new(tags: Vec<u8>, constants: Vec<PoolConstant>, has_dynamic: bool) -> Self {
+        ConstantPool {
+            holder: LateInit::new(),
+            tags,
+            constants,
+            resolution_cache: RwLock::new(HashMap::new()),
+            has_dynamic
+        }
+    }
+
+    pub fn holder(&self) -> Arc<Class> {
+        Arc::clone(&self.holder)
+    }
+
+    pub(crate) fn set_holder(&self, class: Arc<Class>) {
+        self.holder.init(class)
+    }
+
+    pub fn has_dynamic(&self) -> bool {
+        self.has_dynamic
     }
 
     pub fn len(&self) -> usize {
@@ -72,28 +109,133 @@ impl ConstantPool {
         self.tags.get(index - 1).map(|value| *value)
     }
 
-    fn get(&self, index: usize) -> Option<&PoolConstant> {
-        self.constants.get(index - 1)
+    pub fn get_utf8(&self, index: usize) -> Option<IStr> {
+        self.get(index).and_then(|value| value.as_utf8()).map(|value| value.clone())
     }
 
-    pub fn get_utf8(&self, index: usize) -> Option<&str> {
-        self.get(index).and_then(|value| value.as_string()).map(|value| value.as_str())
-    }
-
-    // Same as get_utf8, but returns the underlying IStr object, rather than a splice
     pub fn get_string(&self, index: usize) -> Option<IStr> {
-        self.get(index).and_then(|value| value.as_string()).map(|value| value.clone())
+        let resolver = || {
+            let index = self.get_string_index(index)?;
+            let string = self.get_utf8(index as usize)?;
+            Some(ResolvedPoolConstant::String(string))
+        };
+        let converter = |value: &ResolvedPoolConstant| value.as_string().map(|value| value.clone());
+        self.resolve(index, resolver, converter)
+    }
+
+    pub fn get_class(&self, index: usize) -> Option<Arc<Class>> {
+        let resolver = || {
+            let index = self.get_class_index(index)?;
+            let class_name = self.get_utf8(index as usize)?;
+            let class = self.holder.loader().load_class(class_name.as_str());
+            Some(ResolvedPoolConstant::Class(class))
+        };
+        let converter = |value: &ResolvedPoolConstant| value.as_class()
+            .map(|value| Arc::clone(value));
+        self.resolve(index, resolver, converter)
+    }
+
+    pub fn get_field_ref(&self, index: usize) -> Option<Arc<FieldRef>> {
+        let resolver = || {
+            let (class_index, nat_index) = self.get_field_ref_indices(index)?;
+            Some(ResolvedPoolConstant::FieldRef(parse_field_ref(self, class_index, nat_index)))
+        };
+        let converter = |value: &ResolvedPoolConstant| value.as_field_ref()
+            .map(|value| Arc::clone(value));
+        self.resolve(index, resolver, converter)
+    }
+
+    pub fn get_method_ref(&self, index: usize) -> Option<Arc<MethodRef>> {
+        let resolver = || {
+            let (class_index, nat_index, is_interface) = self.get_unresolved_method_ref(index)?;
+            let method_ref = parse_method_ref(self, class_index, nat_index, is_interface);
+            Some(ResolvedPoolConstant::MethodRef(method_ref))
+        };
+        let converter = |value: &ResolvedPoolConstant| value.as_method_ref()
+            .map(|value| Arc::clone(value));
+        self.resolve(index, resolver, converter)
+    }
+
+    pub fn get_method_handle(&self, index: usize) -> Option<Arc<MethodHandle>> {
+        let resolver = || {
+            let (kind, ref_index) = self.get_unresolved_method_handle(index)?;
+            let handle = MethodHandle::parse(self, kind, ref_index, self.holder.version());
+            Some(ResolvedPoolConstant::MethodHandle(Arc::new(handle)))
+        };
+        let converter = |value: &ResolvedPoolConstant| value.as_method_handle()
+            .map(|value| Arc::clone(value));
+        self.resolve(index, resolver, converter)
+    }
+
+    pub fn get_method_type(&self, index: usize) -> Option<MethodType> {
+        let resolver = || {
+            let descriptor_index = self.get_method_type_index(index)?;
+            let descriptor = self.get_utf8(descriptor_index as usize)
+                .and_then(|value| MethodType::parse(value.as_str()))?;
+            Some(ResolvedPoolConstant::MethodType(descriptor))
+        };
+        let converter = |value: &ResolvedPoolConstant| value.as_method_type()
+            .map(|value| value.clone());
+        self.resolve(index, resolver, converter)
+    }
+
+    get_index!(class);
+    get_index!(string);
+    get_index!(method_type);
+    get_tuple_index!(nat, as_name_and_type);
+    get_tuple_index!(field_ref);
+
+    fn get_unresolved_method_ref(&self, index: usize) -> Option<(u16, u16, bool)> {
+        match self.get(index) {
+            Some(PoolConstant::MethodRef { class_index, nat_index }) =>
+                Some((*class_index, *nat_index, false)),
+            Some(PoolConstant::InterfaceMethodRef { class_index, nat_index }) =>
+                Some((*class_index, *nat_index, true)),
+            _ => None
+        }
+    }
+
+    fn get_unresolved_method_handle(&self, index: usize) -> Option<(u8, u16)> {
+        self.get(index).and_then(|value| value.as_method_handle()).map(|value| (*value.0, *value.1))
     }
 
     get_constant!(int, i32);
     get_constant!(float, f32);
     get_constant!(long, i64);
     get_constant!(double, f64);
-    get_ref!(class, Class);
-    get_ref!(field_ref, FieldRef);
-    get_ref!(method_ref, MethodRef);
-    get_ref!(interface_method_ref, MethodRef);
-    get_ref!(method_handle, MethodHandle);
+
+    fn get(&self, index: usize) -> Option<&PoolConstant> {
+        self.constants.get(index - 1)
+    }
+
+    pub(crate) fn get_class_name(&self, index: usize) -> Option<IStr> {
+        self.get_class_index(index).and_then(|value| self.get_utf8(value as usize))
+    }
+
+    pub(crate) fn get_class_no_holder(&self, index: usize, loader: Arc<ClassLoader>) -> Option<Arc<Class>> {
+        let resolver = || {
+            let index = self.get_class_index(index)?;
+            let class_name = self.get_utf8(index as usize)?;
+            let class = loader.load_class(class_name.as_str());
+            Some(ResolvedPoolConstant::Class(class))
+        };
+        let converter = |value: &ResolvedPoolConstant| value.as_class()
+            .map(|value| Arc::clone(value));
+        self.resolve(index, resolver, converter)
+    }
+
+    fn resolve<T: Clone>(
+        &self,
+        index: usize,
+        resolver: impl FnOnce() -> Option<ResolvedPoolConstant>,
+        converter: impl FnOnce(&ResolvedPoolConstant) -> Option<T>
+    ) -> Option<T> {
+        self.resolution_cache.write().unwrap()
+            .entry(index)
+            .or_insert_with(resolver)
+            .as_ref()
+            .and_then(converter)
+    }
 }
 
 pub const UTF8_TAG: u8 = 1;
@@ -115,113 +257,67 @@ pub const MODULE_TAG: u8 = 19;
 pub const PACKAGE_TAG: u8 = 20;
 
 #[derive(Debug, EnumAsInner)]
-pub enum PoolConstant {
+enum PoolConstant {
+    Utf8(IStr),
     Int(i32),
     Float(f32),
     Long(i64),
     Double(f64),
-    Class(Arc<Class>),
-    String(IStr),
-    FieldRef(Arc<FieldRef>),
-    MethodRef(Arc<MethodRef>),
-    InterfaceMethodRef(Arc<MethodRef>),
-    MethodHandle(Arc<MethodHandle>),
-    MethodType(MethodType),
-    Dynamic(Arc<BootstrapMethod>, IStr, FieldType),
-    InvokeDynamic(Arc<BootstrapMethod>, IStr, MethodType),
-    Module(IStr),
-    Package(IStr),
-    NameAndType(IStr, Descriptor)
+    Class { name_index: u16 },
+    String { value_index: u16 },
+    FieldRef { class_index: u16, nat_index: u16 },
+    MethodRef { class_index: u16, nat_index: u16 },
+    InterfaceMethodRef { class_index: u16, nat_index: u16 },
+    NameAndType { name_index: u16, descriptor_index: u16 },
+    MethodHandle { reference_kind: u8, reference_index: u16 },
+    MethodType { descriptor_index: u16 },
+    Dynamic { bootstrap_method_index: u16, nat_index: u16 },
+    InvokeDynamic { bootstrap_method_index: u16, nat_index: u16 },
+    Module { name_index: u16 },
+    Package { name_index: u16 }
 }
 
 impl PoolConstant {
-    fn parse(
-        tag: u8,
-        buf: &mut Bytes,
-        methods: &Vec<Arc<BootstrapMethod>>,
-        loader: &ClassLoader,
-        pool: &Vec<PoolConstant>,
-        version: &ClassFileVersion
-    ) -> Self {
+    fn parse(tag: u8, buf: &mut Bytes) -> Self {
         match tag {
-            UTF8_TAG => PoolConstant::String(PoolConstant::parse_utf8(buf)),
+            UTF8_TAG => PoolConstant::Utf8(PoolConstant::parse_utf8(buf)),
             INT_TAG => PoolConstant::Int(buf.get_i32()),
             FLOAT_TAG => PoolConstant::Float(buf.get_f32()),
             LONG_TAG => PoolConstant::Long(buf.get_i64()),
             DOUBLE_TAG => PoolConstant::Double(buf.get_f64()),
-            CLASS_TAG => {
-                let name_index = buf.get_u16();
-                let name = pool.get(name_index as usize)
-                    .and_then(|value| value.as_string())
-                    .expect(&format!("Invalid name index {} for class tag!", name_index));
-                PoolConstant::Class(loader.load_class(name.as_str()))
+            CLASS_TAG => PoolConstant::Class { name_index: buf.get_u16() },
+            STRING_TAG => PoolConstant::String { value_index: buf.get_u16() },
+            FIELD_REF_TAG => PoolConstant::FieldRef {
+                class_index: buf.get_u16(),
+                nat_index: buf.get_u16()
             },
-            STRING_TAG => {
-                let value_index = buf.get_u16();
-                let value = pool.get(value_index as usize)
-                    .and_then(|value| value.as_string())
-                    .expect(&format!("Invalid value index {} for string tag!", value_index));
-                PoolConstant::String(value.clone())
+            METHOD_REF_TAG => PoolConstant::MethodRef {
+                class_index: buf.get_u16(),
+                nat_index: buf.get_u16()
             },
-            FIELD_REF_TAG => PoolConstant::parse_ref(buf, pool, |class, name, descriptor| {
-                let field_type = field_type(descriptor, "name and type for field ref");
-                PoolConstant::FieldRef(Arc::new(FieldRef::new(class, name, field_type)))
-            }),
-            METHOD_REF_TAG => {
-                PoolConstant::MethodRef(PoolConstant::parse_method_ref(buf, pool, false))
+            INTERFACE_METHOD_REF_TAG => PoolConstant::InterfaceMethodRef {
+                class_index: buf.get_u16(),
+                nat_index: buf.get_u16()
             },
-            INTERFACE_METHOD_REF_TAG => {
-                PoolConstant::InterfaceMethodRef(PoolConstant::parse_method_ref(buf, pool, true))
+            NAME_AND_TYPE_TAG => PoolConstant::NameAndType {
+                name_index: buf.get_u16(),
+                descriptor_index: buf.get_u16()
             },
-            NAME_AND_TYPE_TAG => {
-                let name_index = buf.get_u16();
-                let name = pool.get(name_index as usize)
-                    .and_then(|value| value.as_string())
-                    .expect(&format!("Invalid name index {} for name and type tag!", name_index));
-                let descriptor_index = buf.get_u16();
-                let descriptor = pool.get(descriptor_index as usize)
-                    .and_then(|value| value.as_string())
-                    .and_then(|value| Descriptor::parse(value.as_str()))
-                    .expect(&format!("Invalid descriptor index {} for name and \
-                        type tag!", descriptor_index));
-                PoolConstant::NameAndType(name.clone(), descriptor)
-            }
-            METHOD_HANDLE_TAG => {
-                PoolConstant::MethodHandle(Arc::new(MethodHandle::parse(pool, buf, version)))
+            METHOD_HANDLE_TAG => PoolConstant::MethodHandle {
+                reference_kind: buf.get_u8(),
+                reference_index: buf.get_u16()
             },
-            METHOD_TYPE_TAG => {
-                let descriptor_index = buf.get_u16();
-                let descriptor = pool.get(descriptor_index as usize)
-                    .and_then(|value| value.as_string())
-                    .and_then(|value| MethodType::parse(value.as_str()))
-                    .expect(&format!("Invalid method type tag! Expected descriptor string at \
-                        index {} in constant pool!", descriptor_index));
-                PoolConstant::MethodType(descriptor)
+            METHOD_TYPE_TAG => PoolConstant::MethodType { descriptor_index: buf.get_u16() },
+            DYNAMIC_TAG => PoolConstant::Dynamic {
+                bootstrap_method_index: buf.get_u16(),
+                nat_index: buf.get_u16()
             },
-            DYNAMIC_TAG => PoolConstant::parse_dynamic(pool, methods, buf, |method, name, descriptor| {
-                let field_type = field_type(descriptor, "name and type for dynamic constant");
-                PoolConstant::Dynamic(method, name, field_type)
-            }),
-            INVOKE_DYNAMIC_TAG => PoolConstant::parse_dynamic(pool, methods, buf, |method, name, descriptor| {
-                let method_type = method_type(descriptor, "name and type for dynamic invocation");
-                PoolConstant::InvokeDynamic(method, name, method_type)
-            }),
-            MODULE_TAG => {
-                let name_index = buf.get_u16();
-                let name = pool.get(name_index as usize)
-                    .and_then(|value| value.as_string())
-                    .expect(&format!("Invalid module tag! Expected index {} to be in constant \
-                        pool!", name_index));
-                PoolConstant::Module(name.clone())
+            INVOKE_DYNAMIC_TAG => PoolConstant::InvokeDynamic {
+                bootstrap_method_index: buf.get_u16(),
+                nat_index: buf.get_u16()
             },
-            PACKAGE_TAG => {
-                let name_index = buf.get_u16();
-                let name = pool.get(name_index as usize)
-                    .and_then(|value| value.as_string())
-                    .expect(&format!("Invalid module tag! Expected index {} to be in constant \
-                        pool!", name_index));
-                PoolConstant::Package(name.clone())
-            }
+            MODULE_TAG => PoolConstant::Module { name_index: buf.get_u16() },
+            PACKAGE_TAG => PoolConstant::Package { name_index: buf.get_u16() },
             _ => panic!("Invalid tag {} for constant pool entry!", tag)
         }
     }
@@ -231,66 +327,58 @@ impl PoolConstant {
         let bytes = buf.copy_to_bytes(length as usize).to_vec();
         IStr::from_utf8(bytes.as_slice()).expect("Failed to convert bytes to string!")
     }
-
-    fn parse_method_ref(buf: &mut Bytes, values: &Vec<PoolConstant>, is_interface: bool) -> Arc<MethodRef> {
-        PoolConstant::parse_ref(buf, values, |class, name, descriptor| {
-            let method_type = method_type(descriptor, "name and type for method/interface method ref");
-            Arc::new(MethodRef::new(class, name, method_type, is_interface))
-        })
-    }
-
-    fn parse_ref<T, F>(
-        buf: &mut Bytes,
-        values: &Vec<PoolConstant>,
-        mapper: F
-    ) -> T where F: FnOnce(Arc<Class>, IStr, &Descriptor) -> T {
-        let class_index = buf.get_u16();
-        let class = values.get(class_index as usize)
-            .and_then(|value| value.as_class())
-            .expect(&format!("Invalid class index {} for field ref tag!", class_index));
-        let name_and_type_index = buf.get_u16();
-        let name_and_type = values.get(name_and_type_index as usize)
-            .and_then(|value| value.as_name_and_type())
-            .expect(&format!("Invalid name and type index {} for field ref \
-                        tag!", name_and_type_index));
-        mapper(Arc::clone(class), name_and_type.0.clone(), name_and_type.1)
-    }
-
-    fn parse_dynamic<T, F>(
-        pool: &Vec<PoolConstant>,
-        bootstrap_methods: &Vec<Arc<BootstrapMethod>>,
-        buf: &mut Bytes,
-        mapper: F
-    ) -> T where F: FnOnce(Arc<BootstrapMethod>, IStr, &Descriptor) -> T {
-        let bootstrap_method_index = buf.get_u16();
-        let bootstrap_method = bootstrap_methods.get(bootstrap_method_index as usize)
-            .expect(&format!("Invalid dynamic constant! Expected index {} to be in constant \
-                pool!", bootstrap_method_index));
-        let name_and_type_index = buf.get_u16();
-        let name_and_type = pool.get(name_and_type_index as usize)
-            .and_then(|value| value.as_name_and_type())
-            .expect(&format!("Invalid dynamic constant! Expected index {} to be in constant \
-                pool!", name_and_type_index));
-        mapper(Arc::clone(bootstrap_method), name_and_type.0.clone(), name_and_type.1)
-    }
 }
 
-macro_rules! descriptor_as {
-    ($name:ident, $T:ident, $D:ident, $type_name:literal) => {
-        fn $name(descriptor: &Descriptor, error: &str) -> $T {
-            match descriptor {
-                Descriptor::$D(element_type) => element_type.clone(),
-                _ => panic!("Invalid {} tag! Descriptor must be a {} descriptor!", error, $type_name)
-            }
-        }
-    }
+#[derive(Debug, EnumAsInner)]
+enum ResolvedPoolConstant {
+    Class(Arc<Class>),
+    String(IStr),
+    FieldRef(Arc<FieldRef>),
+    MethodRef(Arc<MethodRef>),
+    MethodHandle(Arc<MethodHandle>),
+    MethodType(MethodType),
+    Dynamic(Arc<BootstrapMethod>, IStr, FieldType),
+    InvokeDynamic(Arc<BootstrapMethod>, IStr, MethodType)
 }
-
-descriptor_as!(field_type, FieldType, Field, "field");
-descriptor_as!(method_type, MethodType, Method, "method");
 
 fn is_loadable(tag: u8) -> bool {
     tag == INT_TAG || tag == FLOAT_TAG || tag == LONG_TAG || tag == DOUBLE_TAG ||
         tag == CLASS_TAG || tag == STRING_TAG || tag == METHOD_HANDLE_TAG ||
         tag == METHOD_TYPE_TAG || tag == DYNAMIC_TAG
+}
+
+fn parse_field_ref(pool: &ConstantPool, class_index: u16, nat_index: u16) -> Arc<FieldRef> {
+    let mapper = |string: IStr| FieldType::parse(string.as_str());
+    parse_ref(pool, class_index, nat_index, mapper, FieldRef::new)
+}
+
+fn parse_method_ref(
+    pool: &ConstantPool,
+    class_index: u16,
+    nat_index: u16,
+    is_interface: bool
+) -> Arc<MethodRef> {
+    let mapper = |string: IStr| MethodType::parse(string.as_str());
+    parse_ref(pool, class_index, nat_index, mapper, |class, name, descriptor| {
+        MethodRef::new(class, name, descriptor, is_interface)
+    })
+}
+
+fn parse_ref<T, D>(
+    pool: &ConstantPool,
+    class_index: u16,
+    nat_index: u16,
+    mapper: impl FnOnce(IStr) -> Option<D>,
+    constructor: impl FnOnce(Arc<Class>, IStr, D) -> T
+) -> Arc<T> {
+    let class = pool.get_class(class_index as usize)
+        .expect(&format!("Invalid class index {} for ref tag!", class_index));
+    let (name_index, descriptor_index) = pool.get_nat_indices(nat_index as usize)
+        .expect(&format!("Invalid name and type index {} for ref tag!", nat_index));
+    let name = pool.get_string(name_index as usize)
+        .expect(&format!("Invalid name index {} for ref tag!", name_index));
+    let descriptor = pool.get_string(descriptor_index as usize)
+        .and_then(mapper)
+        .expect(&format!("Invalid descriptor index {} for ref tag!", descriptor_index));
+    Arc::new(constructor(class, name, descriptor))
 }

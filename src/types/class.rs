@@ -2,19 +2,21 @@ use bytes::{Buf, Bytes};
 use std::fs;
 use std::sync::Arc;
 use internship::IStr;
+use crate::class_file::attribute_tags::*;
+use crate::class_file::class_loader::ClassLoader;
+use crate::class_file::version::ClassFileVersion;
+use crate::types::method::BootstrapMethod;
+use crate::utils::buffer::BufferExtras;
+use crate::utils::constants::JAVA_LANG_OBJECT_NAME;
 use super::access_flags::*;
 use super::constant_pool::ConstantPool;
 use super::field::Field;
 use super::method::Method;
 use super::record::RecordComponent;
-use crate::class_file::attribute_tags::*;
-use crate::class_file::class_loader::ClassLoader;
-use crate::class_file::version::ClassFileVersion;
-use crate::utils::buffer::BufferExtras;
-use crate::utils::constants::JAVA_LANG_OBJECT_NAME;
 
 #[derive(Debug)]
 pub struct Class {
+    loader: Arc<ClassLoader>,
     version: ClassFileVersion,
     access_flags: u16,
     constant_pool: ConstantPool,
@@ -25,13 +27,14 @@ pub struct Class {
     methods: Vec<Method>,
     source_file_name: Option<IStr>,
     inner_classes: Vec<InnerClassInfo>,
-    record_components: Vec<RecordComponent>
+    record_components: Vec<RecordComponent>,
+    bootstrap_methods: Vec<Arc<BootstrapMethod>>
 }
 
 const MAGIC_CLASS_FILE_VERSION: u32 = 0xCAFEBABE;
 
 impl Class {
-    pub(crate) fn parse(loader: &ClassLoader, file_name: &str) -> Self {
+    pub(crate) fn parse(loader: Arc<ClassLoader>, file_name: &str) -> Self {
         let contents = fs::read(file_name)
             .expect(&format!("Class file name {} could not be read!", file_name));
         let mut buf = Bytes::from(contents);
@@ -58,15 +61,15 @@ impl Class {
         verify_modifiers(file_name, &version, access_flags);
 
         let this_class = buf.get_u16();
-        let name = constant_pool.resolve_class_name(this_class as usize)
-            .expect(&format!("Invalid class file {}! Expected class constant to be at index {} in \
+        let name = constant_pool.get_class_name(this_class as usize)
+            .expect(&format!("Invalid name for class file {}! Expected index {} to be in \
                 constant pool!", file_name, this_class));
-        let super_class = resolve_superclass(loader, file_name, &name, &constant_pool,
-                                             buf.get_u16(), access_flags);
+        let super_class = resolve_superclass(Arc::clone(&loader), file_name, name.as_str(),
+                                             &constant_pool, buf.get_u16(), access_flags);
 
         let interfaces = buf.get_generic_u16_array(|buf| {
             let index = buf.get_u16();
-            constant_pool.resolve_class(index as usize, loader)
+            constant_pool.get_class_no_holder(index as usize, Arc::clone(&loader))
                 .expect(&format!("Invalid class file {}! Expected super interface index {} to be \
                     in constant pool!", file_name, index))
         });
@@ -74,19 +77,21 @@ impl Class {
             Field::parse(file_name, &constant_pool, buf, &version, access_flags)
         });
         let methods = buf.get_generic_u16_array(|buf| {
-            Method::parse(loader, file_name, &constant_pool, buf, &version, access_flags)
+            Method::parse(Arc::clone(&loader), file_name, &constant_pool, buf, &version, access_flags)
         });
 
         let attribute_count = buf.get_u16();
-        let (source_file_name, inner_classes, record_components) = parse_attributes(
+        let (source_file_name, inner_classes, record_components, bootstrap_methods) = parse_attributes(
             file_name,
             &constant_pool,
             &mut buf,
-            attribute_count
+            attribute_count,
+            constant_pool.has_dynamic()
         );
 
         assert_eq!(buf.remaining(), 0, "Extra bytes found in class file {}!", file_name);
         Class {
+            loader,
             version,
             access_flags,
             constant_pool,
@@ -96,12 +101,14 @@ impl Class {
             fields,
             methods,
             source_file_name,
-            inner_classes: inner_classes.unwrap_or(Vec::new()),
-            record_components: record_components.unwrap_or(Vec::new())
+            inner_classes,
+            record_components,
+            bootstrap_methods
         }
     }
 
     pub fn new(
+        loader: Arc<ClassLoader>,
         version: ClassFileVersion,
         access_flags: u16,
         constant_pool: ConstantPool,
@@ -112,9 +119,11 @@ impl Class {
         methods: Vec<Method>,
         source_file_name: Option<&str>,
         inner_classes: Vec<InnerClassInfo>,
-        record_components: Vec<RecordComponent>
+        record_components: Vec<RecordComponent>,
+        bootstrap_methods: Vec<Arc<BootstrapMethod>>
     ) -> Self {
         Class {
+            loader,
             version,
             access_flags,
             constant_pool,
@@ -125,8 +134,18 @@ impl Class {
             methods,
             source_file_name: source_file_name.map(|value| IStr::new(value)),
             inner_classes,
-            record_components
+            record_components,
+            bootstrap_methods
         }
+    }
+
+    pub(crate) fn initialize(self: Arc<Class>) -> Arc<Class> {
+        self.constant_pool.set_holder(Arc::clone(&self));
+        self
+    }
+
+    pub fn loader(&self) -> Arc<ClassLoader> {
+        Arc::clone(&self.loader)
     }
 
     pub fn version(&self) -> &ClassFileVersion {
@@ -173,6 +192,10 @@ impl Class {
         self.record_components.as_slice()
     }
 
+    pub fn bootstrap_methods(&self) -> &[Arc<BootstrapMethod>] {
+        self.bootstrap_methods.as_slice()
+    }
+
     pub fn is_super(&self) -> bool {
         self.access_flags & ACC_SUPER != 0
     }
@@ -198,7 +221,7 @@ impl Class {
 }
 
 fn resolve_superclass(
-    loader: &ClassLoader,
+    loader: Arc<ClassLoader>,
     class_file_name: &str,
     name: &str,
     pool: &ConstantPool,
@@ -213,10 +236,7 @@ fn resolve_superclass(
             JAVA_LANG_OBJECT_NAME, JAVA_LANG_OBJECT_NAME);
         return None;
     }
-    let class_name = pool.resolve_class_name(index as usize)
-        .expect(&format!("Invalid super class for class file {}! Expected index {} to be in \
-            constant pool!", class_file_name, index));
-    Some(loader.load_class(class_name.as_str()))
+    pool.get_class_no_holder(index as usize, loader)
 }
 
 impl_nameable!(Class);
@@ -273,11 +293,13 @@ fn parse_attributes(
     class_file_name: &str,
     pool: &ConstantPool,
     buf: &mut Bytes,
-    mut attribute_count: u16
-) -> (Option<IStr>, Option<Vec<InnerClassInfo>>, Option<Vec<RecordComponent>>) {
+    mut attribute_count: u16,
+    bootstrap_methods_required: bool
+) -> (Option<IStr>, Vec<InnerClassInfo>, Vec<RecordComponent>, Vec<Arc<BootstrapMethod>>) {
     let mut source_file_name = None;
     let mut inner_classes = None;
     let mut record_components = None;
+    let mut bootstrap_methods = None;
 
     while attribute_count > 0 {
         assert!(buf.len() >= 6, "Truncated class attributes for class file {}!", class_file_name);
@@ -315,13 +337,33 @@ fn parse_attributes(
                 components.push(RecordComponent::parse(class_file_name, pool, buf));
             }
             record_components = Some(components);
+        } else if attribute_name == TAG_BOOTSTRAP_METHODS {
+            assert!(bootstrap_methods.is_none(), "Duplicate bootstrap methods attribute found for \
+                class file {}!", class_file_name);
+            let methods_count = buf.get_u16();
+            let mut methods = Vec::with_capacity(methods_count as usize);
+            for _ in 0..methods_count {
+                methods.push(Arc::new(BootstrapMethod::parse(class_file_name, pool, buf)));
+            }
+            bootstrap_methods = Some(methods)
         } else {
             // Skip past any attribute that we don't recognise
             buf.advance(attribute_length as usize);
         }
         attribute_count -= 1;
     }
-    (source_file_name, inner_classes, record_components)
+
+    if bootstrap_methods_required {
+        assert!(bootstrap_methods.is_some(), "Invalid attributes for class file {}! Bootstrap \
+            methods must be present if the class file has a Dynamic or InvokeDynamic constant in \
+            the constant pool!", class_file_name);
+    }
+    (
+        source_file_name,
+        inner_classes.unwrap_or(Vec::new()),
+        record_components.unwrap_or(Vec::new()),
+        bootstrap_methods.unwrap_or(Vec::new())
+    )
 }
 
 fn verify_modifiers(class_file_name: &str, version: &ClassFileVersion, flags: u16) {

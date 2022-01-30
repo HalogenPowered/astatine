@@ -1,40 +1,37 @@
 use std::fmt::Debug;
 use std::sync::Arc;
-use bytes::{Buf, Bytes};
 use enum_as_inner::EnumAsInner;
 use internship::IStr;
 use java_desc::{FieldType, MethodType};
 use crate::Class;
 use crate::class_file::version::ClassFileVersion;
-use crate::types::constant_pool::PoolConstant;
+use crate::types::constant_pool::ConstantPool;
 use crate::utils::constants::{CLASS_INITIALIZER_METHOD_NAME, OBJECT_INITIALIZER_METHOD_NAME};
 
 #[derive(Debug)]
 pub struct MethodHandle {
     kind: ReferenceKind,
-    reference: MethodHandleRef,
+    reference: MethodHandleRef
 }
 
 impl MethodHandle {
     pub(crate) fn parse(
-        pool: &Vec<PoolConstant>,
-        buf: &mut Bytes,
+        pool: &ConstantPool,
+        kind: u8,
+        reference_index: u16,
         version: &ClassFileVersion
     ) -> Self {
-        let kind = buf.get_u8();
         let reference_kind = ReferenceKind::from(kind);
-        let reference_index = buf.get_u16();
         if kind <= REF_PUT_STATIC { // FieldRef
-            let reference = pool.get(reference_index as usize)
-                .and_then(|value| value.as_field_ref())
+            let reference = pool.get_field_ref(reference_index as usize)
                 .expect(&format!("Invalid method handle! Expected field ref index {} to be in \
                     constant pool!", reference_index));
-            return MethodHandle::new(reference_kind, MethodHandleRef::Field(Arc::clone(reference)));
+            return MethodHandle::new(reference_kind, MethodHandleRef::Field(reference));
         }
         let interface_ref_status = InterfaceRefStatus::from_kind(kind, version);
         let reference = lookup_method_ref(pool, reference_index, interface_ref_status);
-        validate_method_ref(kind, reference);
-        MethodHandle::new(reference_kind, MethodHandleRef::Method(Arc::clone(reference)))
+        validate_method_ref(kind, Arc::clone(&reference));
+        MethodHandle::new(reference_kind, MethodHandleRef::Method(Arc::clone(&reference)))
     }
 
     pub const fn new(kind: ReferenceKind, reference: MethodHandleRef) -> Self {
@@ -58,26 +55,25 @@ impl MethodHandle {
     }
 }
 
-fn lookup_method_ref<'a>(
-    pool: &'a Vec<PoolConstant>,
+fn lookup_method_ref(
+    pool: &ConstantPool,
     index: u16,
     status: InterfaceRefStatus
-) -> &'a Arc<MethodRef> {
-    let transformer = |value: &'a PoolConstant| {
-        match status {
-            InterfaceRefStatus::Required => value.as_interface_method_ref(),
-            InterfaceRefStatus::Allowed => value.as_interface_method_ref()
-                .or(value.as_method_ref()),
-            InterfaceRefStatus::Denied => value.as_method_ref()
-        }
-    };
-    pool.get(index as usize)
-        .and_then(transformer)
+) -> Arc<MethodRef> {
+    let reference = pool.get_method_ref(index as usize)
         .expect(&format!("Invalid method handle! Expected method ref index {} to be in constant \
-            pool!", index))
+            pool!", index));
+    match status {
+        InterfaceRefStatus::Required => assert!(reference.is_interface, "Invalid method handle! \
+            Expected method reference to be an interface method reference!"),
+        InterfaceRefStatus::Denied => assert!(!reference.is_interface, "Invalid method handle! \
+            Expected method reference to not be an interface method reference!"),
+        InterfaceRefStatus::Allowed => {}
+    }
+    reference
 }
 
-fn validate_method_ref(kind: u8, reference: &Arc<MethodRef>) {
+fn validate_method_ref(kind: u8, reference: Arc<MethodRef>) {
     let name = reference.name();
     if (kind >= REF_INVOKE_VIRTUAL && kind <= REF_INVOKE_SPECIAL) || kind == REF_INVOKE_INTERFACE {
         assert_ne!(name, CLASS_INITIALIZER_METHOD_NAME, "Invalid method reference! invokeVirtual, \

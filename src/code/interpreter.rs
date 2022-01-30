@@ -1,6 +1,5 @@
 mod primitive_ops;
 
-use std::borrow::Borrow;
 use std::sync::Arc;
 use paste::paste;
 use primitive_ops::*;
@@ -9,10 +8,10 @@ use crate::class_file::code::CodeBlock;
 use crate::objects::heap::HeapSpace;
 use crate::objects::object::*;
 use crate::objects::reference::Reference;
+use crate::types::access_flags::*;
 use crate::types::class::Class;
 use crate::types::utils::Nameable;
 use crate::utils::vm_types::ArrayType;
-use crate::types::access_flags::*;
 use super::stack_frame::StackFrame;
 
 pub struct Interpreter {
@@ -283,7 +282,7 @@ impl Interpreter {
         let reference = reference.unwrap();
 
         let class_index = ((parser.next() as u16) << 8) | (parser.next() as u16);
-        let class = context.class.constant_pool().resolve_class(class_index as usize)
+        let class = context.class.constant_pool().get_class(class_index as usize)
             .expect(&format!("Invalid cast check! Expected index {} to be in constant \
                 pool!", class_index));
         assert!(reference.class().is_subclass(Arc::clone(&class)), "Cannot cast {} to {}!",
@@ -419,7 +418,7 @@ impl Interpreter {
         }
         let reference = reference.unwrap();
 
-        let class = context.class.constant_pool().resolve_class(index as usize)
+        let class = context.class.constant_pool().get_class(index as usize)
             .expect(&format!("Invalid class for instanceof check! Expected index {} to be in \
                 constant pool!", index));
         let result = if reference.class().is_subclass(class) { 1 } else { 0 };
@@ -473,7 +472,7 @@ impl Interpreter {
 
     fn new_ref<'a>(context: &InterpreterContext, frame: &mut StackFrame, parser: &mut CodeParser<'a>) {
         let index = ((parser.next() as u16) << 8) | (parser.next() as u16);
-        let class = context.class.constant_pool().resolve_class(index as usize)
+        let class = context.class.constant_pool().get_class(index as usize)
             .expect(&format!("Invalid object instantiation! Expected index {} to be in constant \
                 pool!", index));
         if class.is_interface() || class.is_abstract() {
@@ -496,7 +495,7 @@ impl Interpreter {
     fn new_ref_array<'a>(context: &InterpreterContext, frame: &mut StackFrame, parser: &mut CodeParser<'a>) {
         let count = frame.pop_int_op();
         let index = ((parser.next() as u16) << 8) | (parser.next() as u16);
-        let class = context.class.constant_pool().resolve_class(index as usize)
+        let class = context.class.constant_pool().get_class(index as usize)
             .expect(&format!("Invalid class type index {}!", index));
 
         let offset = context.heap.len(); // Index of next element will be the current length

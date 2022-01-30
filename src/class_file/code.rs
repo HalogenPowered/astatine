@@ -3,8 +3,7 @@ use std::sync::Arc;
 use bytes::{Buf, Bytes};
 use internship::IStr;
 use java_desc::FieldType;
-use crate::Class;
-use crate::class_file::class_loader::ClassLoader;
+use crate::{Class, ClassLoader};
 use crate::code::stack_frame::StackFrame;
 use crate::types::constant_pool::ConstantPool;
 use crate::types::utils::{FieldTyped, Nameable};
@@ -28,7 +27,7 @@ const MAX_CODE_BYTES: usize = 65535;
 
 impl CodeBlock {
     pub(crate) fn parse(
-        loader: &ClassLoader,
+        loader: Arc<ClassLoader>,
         class_file_name: &str,
         pool: &ConstantPool,
         buf: &mut Bytes
@@ -121,7 +120,7 @@ pub struct ExceptionHandlerTable {
 
 impl ExceptionHandlerTable {
     pub(crate) fn parse(
-        loader: &ClassLoader,
+        loader: Arc<ClassLoader>,
         class_file_name: &str,
         pool: &ConstantPool,
         buf: &mut Bytes
@@ -129,7 +128,7 @@ impl ExceptionHandlerTable {
         let handler_count = buf.get_u16();
         let mut handlers = Vec::with_capacity(handler_count as usize);
         for _ in 0..handler_count {
-            handlers.push(ExceptionHandlerBlock::parse(loader, class_file_name, pool, buf))
+            handlers.push(ExceptionHandlerBlock::parse(Arc::clone(&loader), class_file_name, pool, buf))
         }
         ExceptionHandlerTable::new(handlers)
     }
@@ -161,12 +160,17 @@ pub struct ExceptionHandlerBlock {
 }
 
 impl ExceptionHandlerBlock {
-    pub(crate) fn parse(class_file_name: &str, pool: &ConstantPool, buf: &mut Bytes) -> Self {
+    pub(crate) fn parse(
+        loader: Arc<ClassLoader>,
+        class_file_name: &str,
+        pool: &ConstantPool,
+        buf: &mut Bytes
+    ) -> Self {
         let start_pc = buf.get_u16();
         let end_pc = buf.get_u16();
         let handler_pc = buf.get_u16();
         let catch_type_index = buf.get_u16();
-        let catch_type = pool.resolve_class(catch_type_index as usize)
+        let catch_type = pool.get_class_no_holder(catch_type_index as usize, loader)
             .expect(&format!("Invalid catch type for class file {}! Expected index {} to be in \
                 constant pool!", class_file_name, catch_type_index));
         ExceptionHandlerBlock { start_pc, end_pc, handler_pc, catch_type }
@@ -233,12 +237,12 @@ impl LocalVariable {
 
         let name_index = buf.get_u16();
         let name = pool.get_string(name_index as usize)
-            .expect(&format!("Invalid local variable in table for method in class file {}! Expected \
-                name index {} to be in constant pool!", class_file_name, name_index));
+            .expect(&format!("Invalid local variable in table for method in class file {}! \
+                Expected name index {} to be in constant pool!", class_file_name, name_index));
 
         let descriptor_index = buf.get_u16();
         let descriptor = pool.get_utf8(descriptor_index as usize)
-            .and_then(|value| FieldType::parse(value))
+            .and_then(|value| FieldType::parse(value.as_str()))
             .expect(&format!("Invalid local variable in table for method in class file {}! Could \
                 not parse field descriptor!", class_file_name));
 

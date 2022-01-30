@@ -2,16 +2,17 @@ use std::sync::Arc;
 use bytes::{Buf, Bytes};
 use internship::IStr;
 use java_desc::MethodType;
-use super::access_flags::*;
-use super::constant_pool::ConstantPool;
-use super::utils::*;
 use crate::class_file::attribute_tags::*;
 use crate::class_file::code::CodeBlock;
 use crate::class_file::utils::parse_generic_signature;
 use crate::class_file::version::ClassFileVersion;
 use crate::ClassLoader;
 use crate::objects::handles::MethodHandle;
+use crate::utils::buffer::BufferExtras;
 use crate::utils::constants::*;
+use super::access_flags::*;
+use super::constant_pool::ConstantPool;
+use super::utils::*;
 
 #[derive(Debug)]
 pub struct Method {
@@ -32,7 +33,7 @@ pub const METHOD_IS_STATIC_INITIALIZER: u8 = 0x02;
 
 impl Method {
     pub(crate) fn parse(
-        loader: &ClassLoader,
+        loader: Arc<ClassLoader>,
         class_file_name: &str,
         pool: &ConstantPool,
         buf: &mut Bytes,
@@ -47,7 +48,7 @@ impl Method {
             .clone();
         let descriptor_index = buf.get_u16();
         let descriptor = pool.get_utf8(descriptor_index as usize)
-            .and_then(|value| MethodType::parse(value))
+            .and_then(|value| MethodType::parse(value.as_str()))
             .expect(&format!("Invalid descriptor for method in class file {}!", class_file_name));
 
         let mut other_flags: u8 = 0;
@@ -183,6 +184,28 @@ pub struct BootstrapMethod {
     arguments: Vec<u16>
 }
 
+impl BootstrapMethod {
+    pub(crate) fn parse(class_file_name: &str, pool: &ConstantPool, buf: &mut Bytes) -> Self {
+        let handle_index = buf.get_u16();
+        let handle = pool.get_method_handle(handle_index as usize)
+            .expect(&format!("Invalid bootstrap method in class file {}! Expected index {} to be \
+                in constant pool!", class_file_name, handle_index));
+        BootstrapMethod::new(handle, buf.get_u16_array())
+    }
+
+    pub const fn new(handle: Arc<MethodHandle>, arguments: Vec<u16>) -> Self {
+        BootstrapMethod { handle, arguments }
+    }
+
+    pub fn handle(&self) -> Arc<MethodHandle> {
+        Arc::clone(&self.handle)
+    }
+
+    pub fn arguments(&self) -> &[u16] {
+        self.arguments.as_slice()
+    }
+}
+
 #[derive(Debug)]
 pub struct MethodParameter {
     name: IStr,
@@ -210,7 +233,7 @@ impl_accessible!(MethodParameter, FinalAccessible);
 impl_accessible!(MethodParameter, MandatedAccessible);
 
 fn parse_attributes(
-    loader: &ClassLoader,
+    loader: Arc<ClassLoader>,
     class_file_name: &str,
     pool: &ConstantPool,
     buf: &mut Bytes,
@@ -238,7 +261,7 @@ fn parse_attributes(
             assert!(access_flags & ACC_NATIVE == 0 && access_flags & ACC_ABSTRACT == 0, "Invalid \
                 code attribute for method in class file {}! Abstract and native methods must not \
                 have code attributes!", class_file_name);
-            code = Some(CodeBlock::parse(loader, class_file_name, pool, buf));
+            code = Some(CodeBlock::parse(Arc::clone(&loader), class_file_name, pool, buf));
         } else if attribute_name == TAG_EXCEPTIONS {
             assert!(checked_exception_indices.is_empty(), "Expected single exceptions attribute \
                 for method in class file {}!", class_file_name);

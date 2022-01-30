@@ -1,11 +1,11 @@
 use bytes::{Buf, Bytes};
 use internship::IStr;
 use java_desc::{FieldType, SingleType};
-use super::access_flags::*;
-use super::constant_pool::*;
 use crate::class_file::attribute_tags::*;
 use crate::class_file::utils::parse_generic_signature;
 use crate::class_file::version::ClassFileVersion;
+use super::access_flags::*;
+use super::constant_pool::*;
 
 #[derive(Debug)]
 pub struct Field {
@@ -50,11 +50,10 @@ impl Field {
                 constant pool!", class_file_name, name_index));
 
         let descriptor_index = buf.get_u16();
-        let descriptor_string = pool.get_utf8(descriptor_index as usize)
+        let descriptor = pool.get_utf8(descriptor_index as usize)
+            .and_then(|value| FieldType::parse(value.as_str()))
             .expect(&format!("Invalid field in class file {}! Expected descriptor at index {} in \
                 constant pool!", class_file_name, descriptor_index));
-        let descriptor = FieldType::parse(descriptor_string)
-            .expect(&format!("Invalid descriptor for field in class file {}!", class_file_name));
 
         let attributes_count = buf.get_u16();
         let is_static = access_flags & ACC_STATIC != 0;

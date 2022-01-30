@@ -1,9 +1,9 @@
 use bytes::{Buf, Bytes};
 use internship::IStr;
 use java_desc::FieldType;
-use super::constant_pool::ConstantPool;
 use crate::class_file::attribute_tags::TAG_SIGNATURE;
 use crate::class_file::utils::parse_generic_signature;
+use super::constant_pool::ConstantPool;
 
 #[derive(Debug)]
 pub struct RecordComponent {
@@ -19,12 +19,10 @@ impl RecordComponent {
             .expect(&format!("Invalid record component for class_file file {}! Expected name at \
                 index {} in constant pool!", class_file_name, name_index));
         let descriptor_index = buf.get_u16();
-        let descriptor_string = pool.get_utf8(descriptor_index as usize)
+        let descriptor = pool.get_utf8(descriptor_index as usize)
+            .and_then(|value| FieldType::parse(value.as_str()))
             .expect(&format!("Invalid record component for class_file file {}! Expected \
                 descriptor at index {} in constant pool!", class_file_name, name_index));
-        let descriptor = FieldType::parse(descriptor_string)
-            .expect(&format!("Invalid descriptor {} for record component in class file {}!",
-                             descriptor_string, class_file_name));
 
         let attribute_count = buf.get_u16();
         let generic_signature = parse_attributes(class_file_name, pool, buf, attribute_count);
