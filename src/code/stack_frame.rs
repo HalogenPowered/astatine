@@ -8,11 +8,11 @@ use crate::utils::vm_types::ReturnAddress;
 macro_rules! get_pop_ref {
     ($name:ident, $ty:ty) => {
         paste! {
-            pub fn [<get_local_ $name>](&self, index: usize, heap: Arc<HeapSpace>) -> Reference<Arc<$ty>> {
+            pub fn [<get_local_ $name>](&self, index: usize, heap: &HeapSpace) -> Reference<Arc<$ty>> {
                 StackFrame::get_ref(self.get_local(index), |index| heap.[<get_ $name>](index))
             }
 
-            pub fn [<pop_ $name _op>](&mut self, heap: Arc<HeapSpace>) -> Reference<Arc<$ty>> {
+            pub fn [<pop_ $name _op>](&mut self, heap: &HeapSpace) -> Reference<Arc<$ty>> {
                 StackFrame::get_ref(self.pop_op(), |index| heap.[<get_ $name>](index))
             }
         }

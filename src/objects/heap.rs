@@ -3,6 +3,9 @@ use paste::paste;
 use super::object::*;
 use super::reference::Reference;
 
+// TODO: Look in to some more low-level allocation here, to maximise performance, minimise footprint,
+//  allow lookups that are not thread-safe, and also so we can actually reserve the memory in
+//  advanced so that no other processes can use our memory.
 pub struct HeapSpace {
     allocated: RwLock<Vec<HeapEntry>>,
     maximum_size: usize

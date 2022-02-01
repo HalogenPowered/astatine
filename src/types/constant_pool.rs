@@ -341,12 +341,6 @@ enum ResolvedPoolConstant {
     InvokeDynamic(Arc<BootstrapMethod>, IStr, MethodType)
 }
 
-fn is_loadable(tag: u8) -> bool {
-    tag == INT_TAG || tag == FLOAT_TAG || tag == LONG_TAG || tag == DOUBLE_TAG ||
-        tag == CLASS_TAG || tag == STRING_TAG || tag == METHOD_HANDLE_TAG ||
-        tag == METHOD_TYPE_TAG || tag == DYNAMIC_TAG
-}
-
 fn parse_field_ref(pool: &ConstantPool, class_index: u16, nat_index: u16) -> Arc<FieldRef> {
     let mapper = |string: IStr| FieldType::parse(string.as_str());
     parse_ref(pool, class_index, nat_index, mapper, FieldRef::new)

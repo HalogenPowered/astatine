@@ -15,7 +15,7 @@ pub trait HeapObject {
 }
 
 pub trait ReferenceHeapObject: HeapObject {
-    fn class(&self) -> Arc<Class>;
+    fn class(&self) -> &Class;
 }
 
 macro_rules! impl_getter_setter {
@@ -116,8 +116,8 @@ macro_rules! impl_heap_object {
         }
 
         impl ReferenceHeapObject for $T {
-            fn class(&self) -> Arc<Class> {
-                Arc::clone(&self.class)
+            fn class(&self) -> &Class {
+                &self.class
             }
         }
     }

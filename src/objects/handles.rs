@@ -3,14 +3,14 @@ use std::sync::Arc;
 use enum_as_inner::EnumAsInner;
 use internship::IStr;
 use java_desc::{FieldType, MethodType};
-use crate::Class;
 use crate::class_file::version::ClassFileVersion;
+use crate::types::class::Class;
 use crate::types::constant_pool::ConstantPool;
 use crate::utils::constants::{CLASS_INITIALIZER_METHOD_NAME, OBJECT_INITIALIZER_METHOD_NAME};
 
 #[derive(Debug)]
 pub struct MethodHandle {
-    kind: ReferenceKind,
+    kind: u8,
     reference: MethodHandleRef
 }
 
@@ -21,29 +21,28 @@ impl MethodHandle {
         reference_index: u16,
         version: &ClassFileVersion
     ) -> Self {
-        let reference_kind = ReferenceKind::from(kind);
+        assert!(kind >= REF_GET_FIELD && kind <= REF_INVOKE_INTERFACE, "Invalid method handle kind {}!", kind);
+        assert!(pool.has(reference_index as usize), "Invalid method handle reference index {}!", reference_index);
         if kind <= REF_PUT_STATIC { // FieldRef
             let reference = pool.get_field_ref(reference_index as usize)
                 .expect(&format!("Invalid method handle! Expected field ref index {} to be in \
                     constant pool!", reference_index));
-            return MethodHandle::new(reference_kind, MethodHandleRef::Field(reference));
+            return MethodHandle { kind, reference: MethodHandleRef::Field(reference) };
         }
-        let interface_ref_status = InterfaceRefStatus::from_kind(kind, version);
-        let reference = lookup_method_ref(pool, reference_index, interface_ref_status);
-        validate_method_ref(kind, Arc::clone(&reference));
-        MethodHandle::new(reference_kind, MethodHandleRef::Method(Arc::clone(&reference)))
+        let reference = lookup_method_ref(pool, kind, reference_index, version);
+        MethodHandle { kind, reference: MethodHandleRef::Method(reference) }
     }
 
     pub const fn new(kind: ReferenceKind, reference: MethodHandleRef) -> Self {
-        MethodHandle { kind, reference }
+        MethodHandle { kind: kind as u8, reference }
     }
 
     pub fn is_field_ref(&self) -> bool {
-        self.kind.is_field_ref()
+        self.kind <= REF_PUT_STATIC
     }
 
     pub fn is_method_ref(&self) -> bool {
-        self.kind.is_method_ref()
+        self.kind >= REF_INVOKE_VIRTUAL
     }
 
     pub fn field_ref(&self) -> Option<Arc<FieldRef>> {
@@ -57,23 +56,30 @@ impl MethodHandle {
 
 fn lookup_method_ref(
     pool: &ConstantPool,
+    kind: u8,
     index: u16,
-    status: InterfaceRefStatus
+    version: &ClassFileVersion
 ) -> Arc<MethodRef> {
     let reference = pool.get_method_ref(index as usize)
         .expect(&format!("Invalid method handle! Expected method ref index {} to be in constant \
             pool!", index));
-    match status {
-        InterfaceRefStatus::Required => assert!(reference.is_interface, "Invalid method handle! \
-            Expected method reference to be an interface method reference!"),
-        InterfaceRefStatus::Denied => assert!(!reference.is_interface, "Invalid method handle! \
-            Expected method reference to not be an interface method reference!"),
-        InterfaceRefStatus::Allowed => {}
-    }
+    validate_method_ref(&reference, kind, version);
     reference
 }
 
-fn validate_method_ref(kind: u8, reference: Arc<MethodRef>) {
+fn validate_method_ref(reference: &MethodRef, kind: u8, version: &ClassFileVersion) {
+    if kind == REF_INVOKE_VIRTUAL || kind == REF_NEW_INVOKE_SPECIAL {
+        assert!(!reference.is_interface, "Invalid method handle! Expected method reference to not \
+            be an interface method reference!");
+    }
+    if (kind == REF_INVOKE_STATIC || kind == REF_INVOKE_SPECIAL) && version < &ClassFileVersion::RELEASE_8 {
+        assert!(!reference.is_interface, "Invalid method handle! Expected method reference to not \
+            be an interface method reference!");
+    }
+    if kind == REF_INVOKE_INTERFACE {
+        assert!(reference.is_interface, "Invalid method handle! Expected method reference to be \
+            an interface method reference!");
+    }
     let name = reference.name();
     if (kind >= REF_INVOKE_VIRTUAL && kind <= REF_INVOKE_SPECIAL) || kind == REF_INVOKE_INTERFACE {
         assert_ne!(name, CLASS_INITIALIZER_METHOD_NAME, "Invalid method reference! invokeVirtual, \
@@ -89,56 +95,23 @@ fn validate_method_ref(kind: u8, reference: Arc<MethodRef>) {
     }
 }
 
-enum InterfaceRefStatus {
-    Required,
-    Allowed,
-    Denied
-}
-
-impl InterfaceRefStatus {
-    fn from_kind(kind: u8, version: &ClassFileVersion) -> InterfaceRefStatus {
-        if kind == REF_INVOKE_VIRTUAL || kind == REF_NEW_INVOKE_SPECIAL {
-            return InterfaceRefStatus::Denied;
-        }
-        if kind == REF_INVOKE_STATIC || kind == REF_INVOKE_SPECIAL {
-            return if version < &ClassFileVersion::RELEASE_8 {
-                InterfaceRefStatus::Denied
-            } else {
-                InterfaceRefStatus::Allowed
-            }
-        }
-        if kind == REF_INVOKE_INTERFACE {
-            return InterfaceRefStatus::Required;
-        }
-        panic!("Invalid kind {}!", kind)
-    }
-}
-
-#[derive(Debug, EnumAsInner)]
+#[derive(Debug, Clone, EnumAsInner)]
 pub enum MethodHandleRef {
     Field(Arc<FieldRef>),
     Method(Arc<MethodRef>)
 }
 
 pub trait ElementRef: Debug {
-    fn class(&self) -> Arc<Class>;
+    fn class(&self) -> &Class;
 
     fn name(&self) -> &str;
-}
-
-pub trait FieldElementRef: ElementRef {
-    fn descriptor(&self) -> &FieldType;
-}
-
-pub trait MethodElementRef: ElementRef {
-    fn descriptor(&self) -> &MethodType;
 }
 
 macro_rules! impl_element_ref {
     ($T:ident) => {
         impl ElementRef for $T {
-            fn class(&self) -> Arc<Class> {
-                Arc::clone(&self.class)
+            fn class(&self) -> &Class {
+                &self.class
             }
 
             fn name(&self) -> &str {
@@ -159,10 +132,8 @@ impl FieldRef {
     pub const fn new(class: Arc<Class>, name: IStr, descriptor: FieldType) -> Self {
         FieldRef { class, name, descriptor }
     }
-}
 
-impl FieldElementRef for FieldRef {
-    fn descriptor(&self) -> &FieldType {
+    pub fn descriptor(&self) -> &FieldType {
         &self.descriptor
     }
 }
@@ -187,14 +158,12 @@ impl MethodRef {
         MethodRef { class, name, descriptor, is_interface }
     }
 
+    pub fn descriptor(&self) -> &MethodType {
+        &self.descriptor
+    }
+
     pub fn is_interface(&self) -> bool {
         self.is_interface
-    }
-}
-
-impl MethodElementRef for MethodRef {
-    fn descriptor(&self) -> &MethodType {
-        &self.descriptor
     }
 }
 
@@ -210,7 +179,6 @@ const REF_INVOKE_SPECIAL: u8 = 7;
 const REF_NEW_INVOKE_SPECIAL: u8 = 8;
 const REF_INVOKE_INTERFACE: u8 = 9;
 
-#[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Copy, Clone, EnumAsInner)]
 #[repr(u8)]
 pub enum ReferenceKind {
     GetField = REF_GET_FIELD,
@@ -222,29 +190,4 @@ pub enum ReferenceKind {
     InvokeSpecial = REF_INVOKE_SPECIAL,
     NewInvokeSpecial = REF_NEW_INVOKE_SPECIAL,
     InvokeInterface = REF_INVOKE_INTERFACE
-}
-
-impl ReferenceKind {
-    pub fn from(value: u8) -> ReferenceKind {
-        match value {
-            REF_GET_FIELD => ReferenceKind::GetField,
-            REF_GET_STATIC => ReferenceKind::GetStatic,
-            REF_PUT_FIELD => ReferenceKind::PutField,
-            REF_PUT_STATIC => ReferenceKind::PutStatic,
-            REF_INVOKE_VIRTUAL => ReferenceKind::InvokeVirtual,
-            REF_INVOKE_STATIC => ReferenceKind::InvokeStatic,
-            REF_INVOKE_SPECIAL => ReferenceKind::InvokeSpecial,
-            REF_NEW_INVOKE_SPECIAL => ReferenceKind::NewInvokeSpecial,
-            REF_INVOKE_INTERFACE => ReferenceKind::InvokeInterface,
-            _ => panic!("Invalid reference kind {}!", value)
-        }
-    }
-
-    pub fn is_field_ref(&self) -> bool {
-        *self as u8 <= REF_PUT_STATIC
-    }
-
-    pub fn is_method_ref(&self) -> bool {
-        !self.is_field_ref()
-    }
 }

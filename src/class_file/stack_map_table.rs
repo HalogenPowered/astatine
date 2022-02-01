@@ -133,33 +133,20 @@ const ITEM_UNINITIALIZED_THIS: u8 = 6;
 const ITEM_OBJECT: u8 = 7;
 const ITEM_UNINITIALIZED: u8 = 8;
 
-#[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Copy, Clone, EnumAsInner)]
-pub enum VerificationType {
-    Top,
-    Integer,
-    Float,
-    Double,
-    Long,
-    Null,
-    UninitializedThis,
-    Object { constant_pool_index: u16 },
-    Uninitialized { offset: u16 }
+#[derive(Debug, Copy, Clone)]
+pub struct VerificationType {
+    item: u8,
+    offset: u16
 }
 
 impl VerificationType {
     fn parse(buf: &mut Bytes) -> Self {
         let tag = buf.get_u8();
-        match tag {
-            ITEM_TOP => VerificationType::Top,
-            ITEM_INTEGER => VerificationType::Integer,
-            ITEM_FLOAT => VerificationType::Float,
-            ITEM_DOUBLE => VerificationType::Double,
-            ITEM_LONG => VerificationType::Long,
-            ITEM_NULL => VerificationType::Null,
-            ITEM_UNINITIALIZED_THIS => VerificationType::UninitializedThis,
-            ITEM_OBJECT => VerificationType::Object { constant_pool_index: buf.get_u16() },
-            ITEM_UNINITIALIZED => VerificationType::Uninitialized { offset: buf.get_u16() },
-            _ => panic!("Could not parse verification type with tag {}!", tag)
-        }
+        let offset = if tag == ITEM_OBJECT || tag == ITEM_UNINITIALIZED { buf.get_u16() } else { 0 };
+        VerificationType::new(tag, offset)
+    }
+
+    const fn new(item: u8, offset: u16) -> Self {
+        VerificationType { item, offset }
     }
 }

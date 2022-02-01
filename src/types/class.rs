@@ -1,7 +1,7 @@
 use bytes::{Buf, Bytes};
+use internship::IStr;
 use std::fs;
 use std::sync::Arc;
-use internship::IStr;
 use crate::class_file::attribute_tags::*;
 use crate::class_file::class_loader::ClassLoader;
 use crate::class_file::version::ClassFileVersion;

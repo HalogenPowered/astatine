@@ -141,9 +141,9 @@ impl ExceptionHandlerTable {
         self.handlers.get(index)
     }
 
-    pub fn get_handler(&self, exception: Arc<Class>) -> Option<&ExceptionHandlerBlock> {
+    pub fn get_handler(&self, exception: &Class) -> Option<&ExceptionHandlerBlock> {
         for element in &self.handlers {
-            if element.catch_type.as_ref() as *const Class == exception.as_ref() as *const Class {
+            if element.catch_type() as *const Class == exception as *const Class {
                 return Some(element);
             }
         }
@@ -204,8 +204,9 @@ pub struct LocalVariableTable {
 
 impl LocalVariableTable {
     pub(crate) fn parse(class_file_name: &str, pool: &ConstantPool, buf: &mut Bytes) -> Self {
-        LocalVariableTable::new(buf.get_generic_u16_array(
-            |buf| LocalVariable::parse(class_file_name, pool, buf)))
+        LocalVariableTable::new(buf.get_generic_u16_array(|buf| {
+            LocalVariable::parse(class_file_name, pool, buf)
+        }))
     }
 
     pub const fn new(variables: Vec<LocalVariable>) -> Self {
