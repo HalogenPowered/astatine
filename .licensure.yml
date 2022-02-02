@@ -1,0 +1,42 @@
+excludes:
+  - \.gitignore
+  - .*lock
+  - \.git/.*
+  - \.licensure\.yml
+  - README.*
+  - LICENSE.*
+  - .*\.(md|rst|txt)
+  - Cargo.toml
+  - .*\.class
+
+licenses:
+  - files: any
+    ident: GPL-2.0-only
+    authors:
+      - name: Callum Seabrook
+        email: callum.seabrook@prevarinite.com
+    template: |
+      Copyright (C) [year] [name of author]
+
+
+      This program is free software; you can redistribute it and/or modify it under the terms of the GNU General Public
+      License as published by the Free Software Foundation; version 2.
+
+
+      This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied
+      warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
+      details.
+
+
+      You should have received a copy of the GNU General Public License along with this program; if not, write to the
+      Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
+
+comments:
+  - columns: 80
+    extension: rs
+    commenter:
+      type: block
+      start_block_char: "/*\n"
+      end_block_char: " */\n\n"
+      per_line_char: " *"
+      trailing_lines: 0
