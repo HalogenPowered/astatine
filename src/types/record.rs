@@ -15,7 +15,7 @@ pub struct RecordComponent {
 impl RecordComponent {
     pub(crate) fn parse(class_file_name: &str, pool: &ConstantPool, buf: &mut Bytes) -> Self {
         let name_index = buf.get_u16();
-        let name = pool.get_string(name_index as usize)
+        let name = pool.get_utf8(name_index as usize)
             .expect(&format!("Invalid record component for class_file file {}! Expected name at \
                 index {} in constant pool!", class_file_name, name_index));
         let descriptor_index = buf.get_u16();

@@ -39,7 +39,7 @@ impl Method {
     ) -> Self {
         let mut access_flags = buf.get_u16();
         let name_index = buf.get_u16();
-        let name = pool.get_string(name_index as usize)
+        let name = pool.get_utf8(name_index as usize)
             .expect(&format!("Invalid method in class file {}! Expected name index {} to be in \
                 constant pool!", class_file_name, name_index))
             .clone();
@@ -211,7 +211,7 @@ pub struct MethodParameter {
 impl MethodParameter {
     pub(crate) fn parse(class_file_name: &str, pool: &ConstantPool, buf: &mut Bytes) -> Self {
         let name_index = buf.get_u16();
-        let name = pool.get_string(name_index as usize)
+        let name = pool.get_utf8(name_index as usize)
             .expect(&format!("Invalid method parameter for method in class file {}! Expected name \
                 at index {}!", class_file_name, name_index));
         let access_flags = buf.get_u16();

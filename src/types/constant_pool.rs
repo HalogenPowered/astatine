@@ -370,9 +370,9 @@ fn parse_ref<T, D>(
         .expect(&format!("Invalid class index {} for ref tag!", class_index));
     let (name_index, descriptor_index) = pool.get_nat_indices(nat_index as usize)
         .expect(&format!("Invalid name and type index {} for ref tag!", nat_index));
-    let name = pool.get_string(name_index as usize)
+    let name = pool.get_utf8(name_index as usize)
         .expect(&format!("Invalid name index {} for ref tag!", name_index));
-    let descriptor = pool.get_string(descriptor_index as usize)
+    let descriptor = pool.get_utf8(descriptor_index as usize)
         .and_then(mapper)
         .expect(&format!("Invalid descriptor index {} for ref tag!", descriptor_index));
     Arc::new(constructor(class, name, descriptor))

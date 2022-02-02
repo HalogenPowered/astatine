@@ -44,7 +44,7 @@ impl Field {
         }
 
         let name_index = buf.get_u16();
-        let name = pool.get_string(name_index as usize)
+        let name = pool.get_utf8(name_index as usize)
             .expect(&format!("Invalid field in class file {}! Expected name at index {} in \
                 constant pool!", class_file_name, name_index));
 
@@ -213,7 +213,7 @@ impl ConstantValue {
             FieldType::Reference(name) => {
                 assert!(value_type == CLASS_TAG && name == STRING_DESCRIPTOR, "Inconsistent \
                     constant value type or descriptor! Expected string!");
-                pool.get_string(index as usize).map(|value| ConstantValue::String(value))
+                pool.get_utf8(index as usize).map(|value| ConstantValue::String(value))
             }
         }
     }

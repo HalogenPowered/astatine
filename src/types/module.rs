@@ -27,13 +27,13 @@ impl Module {
         class_version: &ClassFileVersion
     ) -> Self {
         let name_index = buf.get_u16();
-        let name = pool.get_string(name_index as usize)
+        let name = pool.get_utf8(name_index as usize)
             .expect(&format!("Invalid module for class file {}! Expected name at index {} in \
                 constant pool!", class_file_name, name_index));
 
         let access_flags = buf.get_u16();
         let version_index = buf.get_u16();
-        let version = pool.get_string(version_index as usize);
+        let version = pool.get_utf8(version_index as usize);
         if version_index != 0 {
             assert!(version.is_some(), "Invalid version attribute for module in class file {}! \
                 Expected value for non-zero version index {}!", class_file_name, version_index);
@@ -147,7 +147,7 @@ impl ModuleRequires {
         let access_flags = buf.get_u16();
         check_requires_flags(module_name, version, access_flags);
         let version_index = buf.get_u16();
-        let version = pool.get_string(version_index as usize);
+        let version = pool.get_utf8(version_index as usize);
         if version_index != 0 {
             assert!(version.is_some(), "Invalid version attribute for module requirement in class \
                 file {}! Expected value for non-zero version index {}!", class_file_name, version_index);

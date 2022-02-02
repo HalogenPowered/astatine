@@ -261,7 +261,7 @@ impl InnerClassInfo {
         let index = buf.get_u16();
         let outer_index = buf.get_u16();
         let name_index = buf.get_u16();
-        let name = pool.get_string(name_index as usize)
+        let name = pool.get_utf8(name_index as usize)
             .expect(&format!("Invalid inner class for class file {}! Expected name at \
                 index {}!", class_file_name, name_index));
         let access_flags = buf.get_u16();
@@ -317,7 +317,7 @@ fn parse_attributes(
             assert!(source_file_name.is_none(), "Duplicate source file attribute found for class \
                 file {}!", class_file_name);
             let source_file_index = buf.get_u16();
-            let source_file = pool.get_string(source_file_index as usize)
+            let source_file = pool.get_utf8(source_file_index as usize)
                 .expect(&format!("Invalid source file attribute for class file {}! Expected name \
                     index {} to be in constant pool!", class_file_name, source_file_index));
             source_file_name = Some(source_file);

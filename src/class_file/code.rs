@@ -236,7 +236,7 @@ impl LocalVariable {
         let length = buf.get_u16();
 
         let name_index = buf.get_u16();
-        let name = pool.get_string(name_index as usize)
+        let name = pool.get_utf8(name_index as usize)
             .expect(&format!("Invalid local variable in table for method in class file {}! \
                 Expected name index {} to be in constant pool!", class_file_name, name_index));
 
