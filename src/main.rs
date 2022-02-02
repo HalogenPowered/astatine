@@ -1,7 +1,7 @@
 use std::io;
 use std::sync::Arc;
-use crate::class_file::class_loader::ClassLoader;
-use crate::types::class::Class;
+use crate::class_file::ClassLoader;
+use crate::types::Class;
 
 pub mod class_file;
 pub mod types;

@@ -1,14 +1,15 @@
-use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
 use bytes::{Buf, Bytes};
 use enum_as_inner::EnumAsInner;
 use internship::IStr;
-use java_desc::{FieldType, MethodType};
 use paste::paste;
-use crate::{Class, ClassLoader};
+use std::collections::HashMap;
+use std::sync::{Arc, RwLock};
+use crate::class_file::ClassLoader;
 use crate::objects::handles::{FieldRef, MethodHandle, MethodRef};
+use crate::types::Class;
 use crate::types::method::BootstrapMethod;
-use crate::utils::lateinit::LateInit;
+use crate::utils::LateInit;
+use crate::utils::descriptors::{FieldDescriptor, MethodDescriptor};
 
 macro_rules! get_constant {
     ($name:ident, $ty:ty) => {
@@ -167,11 +168,11 @@ impl ConstantPool {
         self.resolve(index, resolver, converter)
     }
 
-    pub fn get_method_type(&self, index: usize) -> Option<MethodType> {
+    pub fn get_method_type(&self, index: usize) -> Option<MethodDescriptor> {
         let resolver = || {
             let descriptor_index = self.get_method_type_index(index)?;
             let descriptor = self.get_utf8(descriptor_index as usize)
-                .and_then(|value| MethodType::parse(value.as_str()))?;
+                .and_then(|value| MethodDescriptor::parse(value.as_str()))?;
             Some(ResolvedPoolConstant::MethodType(descriptor))
         };
         let converter = |value: &ResolvedPoolConstant| value.as_method_type()
@@ -231,7 +232,7 @@ impl ConstantPool {
         converter: impl FnOnce(&ResolvedPoolConstant) -> Option<T>
     ) -> Option<T> {
         self.resolution_cache.write().unwrap()
-            .entry(index)
+            .entry(index - 1)
             .or_insert_with(resolver)
             .as_ref()
             .and_then(converter)
@@ -336,13 +337,13 @@ enum ResolvedPoolConstant {
     FieldRef(Arc<FieldRef>),
     MethodRef(Arc<MethodRef>),
     MethodHandle(Arc<MethodHandle>),
-    MethodType(MethodType),
-    Dynamic(Arc<BootstrapMethod>, IStr, FieldType),
-    InvokeDynamic(Arc<BootstrapMethod>, IStr, MethodType)
+    MethodType(MethodDescriptor),
+    Dynamic(Arc<BootstrapMethod>, IStr, FieldDescriptor),
+    InvokeDynamic(Arc<BootstrapMethod>, IStr, MethodDescriptor)
 }
 
 fn parse_field_ref(pool: &ConstantPool, class_index: u16, nat_index: u16) -> Arc<FieldRef> {
-    let mapper = |string: IStr| FieldType::parse(string.as_str());
+    let mapper = |string: IStr| FieldDescriptor::parse(string.as_str());
     parse_ref(pool, class_index, nat_index, mapper, FieldRef::new)
 }
 
@@ -352,7 +353,7 @@ fn parse_method_ref(
     nat_index: u16,
     is_interface: bool
 ) -> Arc<MethodRef> {
-    let mapper = |string: IStr| MethodType::parse(string.as_str());
+    let mapper = |string: IStr| MethodDescriptor::parse(string.as_str());
     parse_ref(pool, class_index, nat_index, mapper, |class, name, descriptor| {
         MethodRef::new(class, name, descriptor, is_interface)
     })

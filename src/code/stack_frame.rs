@@ -1,18 +1,14 @@
-use std::sync::Arc;
 use paste::paste;
-use crate::objects::heap::HeapSpace;
-use crate::objects::object::*;
-use crate::objects::reference::Reference;
-use crate::utils::vm_types::ReturnAddress;
+use crate::objects::*;
 
 macro_rules! get_pop_ref {
     ($name:ident, $ty:ty) => {
         paste! {
-            pub fn [<get_local_ $name>](&self, index: usize, heap: &HeapSpace) -> Reference<Arc<$ty>> {
+            pub fn [<get_local_ $name>](&self, index: usize, heap: &HeapSpace) -> Reference<$ty> {
                 StackFrame::get_ref(self.get_local(index), |index| heap.[<get_ $name>](index))
             }
 
-            pub fn [<pop_ $name _op>](&mut self, heap: &HeapSpace) -> Reference<Arc<$ty>> {
+            pub fn [<pop_ $name _op>](&mut self, heap: &HeapSpace) -> Reference<$ty> {
                 StackFrame::get_ref(self.pop_op(), |index| heap.[<get_ $name>](index))
             }
         }
@@ -82,7 +78,7 @@ impl StackFrame {
     get_pop_ref!(ref_array, ReferenceArrayObject);
     get_pop_ref!(type_array, TypeArrayObject);
 
-    pub fn get_local_return_address(&self, index: usize) -> Option<ReturnAddress> {
+    pub fn get_local_return_address(&self, index: usize) -> Option<u32> {
         self.local_variables.get(index).map(|value| *value)
     }
 
@@ -193,11 +189,11 @@ impl StackFrame {
             .expect(&format!("Could not pop element at offset {} from end of stack!", offset))
     }
 
-    fn get_ref<T, F>(offset: u32, f: F) -> Reference<T> where F : Fn(usize) -> Reference<T> {
+    fn get_ref<T: HeapObject>(offset: u32, mapper: impl Fn(usize) -> Reference<T>) -> Reference<T> {
         let ref_index = (offset + 1) as usize;
         match offset {
             0 => Reference::Null,
-            _ => f(ref_index)
+            _ => mapper(ref_index)
         }
     }
 }

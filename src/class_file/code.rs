@@ -1,15 +1,14 @@
-use std::collections::HashMap;
-use std::sync::Arc;
 use bytes::{Buf, Bytes};
 use internship::IStr;
-use java_desc::FieldType;
-use crate::{Class, ClassLoader};
-use crate::code::stack_frame::StackFrame;
-use crate::types::constant_pool::ConstantPool;
-use crate::types::utils::{FieldTyped, Nameable};
-use crate::utils::buffer::BufferExtras;
+use std::collections::HashMap;
+use std::sync::Arc;
+use crate::code::StackFrame;
+use crate::types::{Class, ConstantPool};
+use crate::utils::BufferExtras;
+use crate::utils::descriptors::FieldDescriptor;
 use super::attribute_tags::*;
-use super::stack_map_table::*;
+use super::ClassLoader;
+use super::verification::*;
 
 #[derive(Debug)]
 pub struct CodeBlock {
@@ -225,7 +224,7 @@ impl LocalVariableTable {
 #[derive(Debug)]
 pub struct LocalVariable {
     name: IStr,
-    descriptor: FieldType,
+    descriptor: FieldDescriptor,
     start_pc: u16,
     length: u16,
     index: u16
@@ -243,7 +242,7 @@ impl LocalVariable {
 
         let descriptor_index = buf.get_u16();
         let descriptor = pool.get_utf8(descriptor_index as usize)
-            .and_then(|value| FieldType::parse(value.as_str()))
+            .and_then(|value| FieldDescriptor::parse(value.as_str()))
             .expect(&format!("Invalid local variable in table for method in class file {}! Could \
                 not parse field descriptor!", class_file_name));
 
@@ -251,8 +250,17 @@ impl LocalVariable {
         LocalVariable { name, descriptor, start_pc, length, index }
     }
 
-    pub fn new(name: &str, descriptor: FieldType, start_pc: u16, length: u16, index: u16) -> Self {
+    pub fn new(name: &str, descriptor: FieldDescriptor, start_pc: u16, length: u16, index: u16) -> Self {
         LocalVariable { name: IStr::new(name), descriptor, start_pc, length, index }
+    }
+
+    // TODO: Procedural macros
+    pub fn name(&self) -> &str {
+        self.name.as_str()
+    }
+
+    pub fn descriptor(&self) -> &FieldDescriptor {
+        &self.descriptor
     }
 
     pub fn start_pc(&self) -> u16 {
@@ -265,18 +273,6 @@ impl LocalVariable {
 
     pub fn index(&self) -> u16 {
         self.index
-    }
-}
-
-impl Nameable for LocalVariable {
-    fn name(&self) -> &str {
-        self.name.as_str()
-    }
-}
-
-impl FieldTyped for LocalVariable {
-    fn descriptor(&self) -> &FieldType {
-        &self.descriptor
     }
 }
 

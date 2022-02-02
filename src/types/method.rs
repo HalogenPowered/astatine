@@ -1,23 +1,20 @@
-use std::sync::Arc;
 use bytes::{Buf, Bytes};
 use internship::IStr;
-use java_desc::MethodType;
+use std::sync::Arc;
 use crate::class_file::attribute_tags::*;
+use crate::class_file::{ClassLoader, ClassFileVersion, parse_generic_signature};
 use crate::class_file::code::CodeBlock;
-use crate::class_file::utils::parse_generic_signature;
-use crate::class_file::version::ClassFileVersion;
-use crate::ClassLoader;
 use crate::objects::handles::MethodHandle;
-use crate::utils::buffer::BufferExtras;
+use crate::utils::BufferExtras;
 use crate::utils::constants::*;
+use crate::utils::descriptors::MethodDescriptor;
 use super::access_flags::*;
 use super::constant_pool::ConstantPool;
-use super::utils::*;
 
 #[derive(Debug)]
 pub struct Method {
     name: IStr,
-    descriptor: MethodType,
+    descriptor: MethodDescriptor,
     generic_signature: Option<IStr>,
     access_flags: u16,
     parameters: Vec<MethodParameter>,
@@ -48,15 +45,19 @@ impl Method {
             .clone();
         let descriptor_index = buf.get_u16();
         let descriptor = pool.get_utf8(descriptor_index as usize)
-            .and_then(|value| MethodType::parse(value.as_str()))
+            .and_then(|value| MethodDescriptor::parse(value.as_str()))
             .expect(&format!("Invalid descriptor for method in class file {}!", class_file_name));
 
         let mut other_flags: u8 = 0;
         if name == CLASS_INITIALIZER_METHOD_NAME {
-            assert!(descriptor.ret.is_none() && (version >= &ClassFileVersion::RELEASE_7 &&
-                descriptor.params.is_empty()), "Invalid method descriptor {:?} for static \
-                initializer ({})! Static initializer must take no parameters and return \
+            assert!(descriptor.return_type().is_none(), "Invalid method descriptor {:?} for \
+                static initializer ({})! Static initializer must return \
                 void!", descriptor, CLASS_INITIALIZER_METHOD_NAME);
+            if version >= &ClassFileVersion::RELEASE_7 {
+                assert!(descriptor.parameters().is_empty(), "Invalid method descriptor {:?} for \
+                    static initializer ({})! Static initializer must take no \
+                    parameters!", descriptor, CLASS_INITIALIZER_METHOD_NAME);
+            }
             other_flags |= METHOD_IS_STATIC_INITIALIZER;
             if version < &ClassFileVersion::RELEASE_7 {
                 access_flags = ACC_STATIC;
@@ -106,7 +107,7 @@ impl Method {
 
     pub fn new(
         name: &str,
-        descriptor: MethodType,
+        descriptor: MethodDescriptor,
         generic_signature: Option<&str>,
         access_flags: u16,
         parameters: Vec<MethodParameter>,
@@ -125,6 +126,14 @@ impl Method {
             other_flags
         }
     }
+
+    // TODO: Procedural macros
+    named!();
+    describable!(MethodDescriptor);
+    flagged_final!();
+    flagged_public!();
+    flagged_abstract!();
+    flagged_private_protected_static!();
 
     pub fn parameters(&self) -> &[MethodParameter] {
         self.parameters.as_slice()
@@ -163,20 +172,7 @@ impl Method {
     }
 }
 
-impl_nameable!(Method);
-impl_generic!(Method);
-
-impl MethodTyped for Method {
-    fn descriptor(&self) -> &MethodType {
-        &self.descriptor
-    }
-}
-
 impl_accessible!(Method);
-impl_accessible!(Method, FinalAccessible);
-impl_accessible!(Method, PublicAccessible);
-impl_accessible!(Method, AbstractAccessible);
-impl_accessible!(Method, PrivateProtectedStaticAccessible);
 
 #[derive(Debug)]
 pub struct BootstrapMethod {
@@ -225,12 +221,13 @@ impl MethodParameter {
     pub fn new(name: &str, access_flags: u16) -> Self {
         MethodParameter { name: IStr::from(name), access_flags }
     }
+
+    named!();
+    flagged_final!();
+    flagged_mandated!();
 }
 
-impl_nameable!(MethodParameter);
 impl_accessible!(MethodParameter);
-impl_accessible!(MethodParameter, FinalAccessible);
-impl_accessible!(MethodParameter, MandatedAccessible);
 
 fn parse_attributes(
     loader: Arc<ClassLoader>,
@@ -282,13 +279,11 @@ fn parse_attributes(
         } else if attribute_name == TAG_DEPRECATED {
             assert_eq!(attribute_length, 0, "Invalid deprecated attribute length {} for method in \
                 class file {}!", attribute_length, class_file_name);
-        } else if version >= &ClassFileVersion::RELEASE_1_5 {
-            if attribute_name == TAG_SIGNATURE {
-                assert!(generic_signature.is_none(), "Duplicate generic signature attribute found \
-                    for method in class file {}!", class_file_name);
-                generic_signature = parse_generic_signature(class_file_name, pool, buf,
-                                                            attribute_length, "method");
-            }
+        } else if version >= &ClassFileVersion::RELEASE_1_5 && attribute_name == TAG_SIGNATURE {
+            assert!(generic_signature.is_none(), "Duplicate generic signature attribute found \
+                for method in class file {}!", class_file_name);
+            generic_signature = parse_generic_signature(class_file_name, pool, buf,
+                                                        attribute_length, "method");
         } else {
             // Skip past any attribute that we don't recognise
             buf.advance(attribute_length as usize);

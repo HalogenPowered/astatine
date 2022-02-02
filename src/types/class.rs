@@ -3,16 +3,15 @@ use internship::IStr;
 use std::fs;
 use std::sync::Arc;
 use crate::class_file::attribute_tags::*;
-use crate::class_file::class_loader::ClassLoader;
-use crate::class_file::version::ClassFileVersion;
+use crate::class_file::{ClassLoader, ClassFileVersion};
 use crate::types::method::BootstrapMethod;
-use crate::utils::buffer::BufferExtras;
+use crate::utils::BufferExtras;
 use crate::utils::constants::JAVA_LANG_OBJECT_NAME;
 use super::access_flags::*;
-use super::constant_pool::ConstantPool;
+use super::ConstantPool;
 use super::field::Field;
 use super::method::Method;
-use super::record::RecordComponent;
+use super::RecordComponent;
 
 #[derive(Debug)]
 pub struct Class {
@@ -144,6 +143,14 @@ impl Class {
         self
     }
 
+    // TODO: Procedural macros
+    named!();
+    flagged_final!();
+    flagged_public!();
+    flagged_abstract!();
+    flagged_enum!();
+    flagged_interface_annotation!();
+
     pub fn loader(&self) -> Arc<ClassLoader> {
         Arc::clone(&self.loader)
     }
@@ -220,6 +227,8 @@ impl Class {
     }
 }
 
+impl_accessible!(Class);
+
 fn resolve_superclass(
     loader: Arc<ClassLoader>,
     class_file_name: &str,
@@ -238,14 +247,6 @@ fn resolve_superclass(
     }
     pool.get_class_no_holder(index as usize, loader)
 }
-
-impl_nameable!(Class);
-impl_accessible!(Class);
-impl_accessible!(Class, FinalAccessible);
-impl_accessible!(Class, PublicAccessible);
-impl_accessible!(Class, AbstractAccessible);
-impl_accessible!(Class, EnumAccessible);
-impl_accessible!(Class, InterfaceAnnotationAccessible);
 
 #[derive(Debug)]
 pub struct InnerClassInfo {
@@ -271,6 +272,14 @@ impl InnerClassInfo {
         InnerClassInfo { index, name: IStr::new(name), access_flags, outer_index }
     }
 
+    named!();
+    flagged_final!();
+    flagged_public!();
+    flagged_abstract!();
+    flagged_enum!();
+    flagged_private_protected_static!();
+    flagged_interface_annotation!();
+
     pub fn index(&self) -> u16 {
         self.index
     }
@@ -280,14 +289,7 @@ impl InnerClassInfo {
     }
 }
 
-impl_nameable!(InnerClassInfo);
 impl_accessible!(InnerClassInfo);
-impl_accessible!(InnerClassInfo, FinalAccessible);
-impl_accessible!(InnerClassInfo, PublicAccessible);
-impl_accessible!(InnerClassInfo, AbstractAccessible);
-impl_accessible!(InnerClassInfo, EnumAccessible);
-impl_accessible!(InnerClassInfo, PrivateProtectedStaticAccessible);
-impl_accessible!(InnerClassInfo, InterfaceAnnotationAccessible);
 
 fn parse_attributes(
     class_file_name: &str,

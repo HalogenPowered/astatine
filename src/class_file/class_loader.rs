@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use internship::IStr;
-use crate::types::class::Class;
+use crate::types::Class;
 
 // TODO: Maybe locking the entire map with a single lock for reading and writing
 //  isn't the greatest idea?

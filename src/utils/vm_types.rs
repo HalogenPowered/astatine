@@ -1,7 +1,5 @@
 use std::fmt::{Display, Formatter};
 
-pub type ReturnAddress = u32;
-
 pub const T_BOOLEAN: u8 = 4;
 pub const T_CHAR: u8 = 5;
 pub const T_FLOAT: u8 = 6;

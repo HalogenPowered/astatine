@@ -15,8 +15,8 @@ maintenance = { status = "experimental" }
 
 [dependencies]
 bytes = "1.1.0"
-java-desc = "0.1.1"
 jni = "0.19.0"
 paste = "1.0.6"
 internship = "0.6.0"
 enum-as-inner = "0.3.3"
+nom = "5.1.2"

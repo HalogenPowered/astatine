@@ -1,21 +1,21 @@
 use std::sync::Arc;
 use super::object::HeapObject;
 
-#[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Copy, Clone)]
-pub enum Reference<T> {
-    Value(T),
+#[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Clone)]
+pub enum Reference<T: HeapObject> {
+    Value(Arc<T>),
     Null
 }
 
-impl<T> Reference<T> {
-    pub fn expect(self, message: &str) -> T {
+impl<T: HeapObject> Reference<T> {
+    pub fn expect(self, message: &str) -> Arc<T> {
         match self {
             Reference::Value(value) => value,
             Reference::Null => panic!("{}", message)
         }
     }
 
-    pub fn unwrap(self) -> T {
+    pub fn unwrap(self) -> Arc<T> {
         match self {
             Reference::Value(value) => value,
             Reference::Null => panic!("called `Reference::unwrap()` on a `Null` value"),
@@ -29,18 +29,7 @@ impl<T> Reference<T> {
     pub fn is_null(&self) -> bool {
         matches!(self, Reference::Null)
     }
-}
 
-impl<T> From<Option<T>> for Reference<T> {
-    fn from(option: Option<T>) -> Self {
-        match option {
-            Some(value) => Reference::Value(value),
-            None => Reference::Null
-        }
-    }
-}
-
-impl<T: HeapObject> Reference<Arc<T>> {
     pub fn equals(self, other: Self) -> bool {
         if self.is_null() && other.is_null() {
             return true;
@@ -49,5 +38,14 @@ impl<T: HeapObject> Reference<Arc<T>> {
             return self.unwrap().equals(&other.unwrap())
         }
         return false;
+    }
+}
+
+impl<T: HeapObject> From<Option<Arc<T>>> for Reference<T> {
+    fn from(option: Option<Arc<T>>) -> Self {
+        match option {
+            Some(value) => Reference::Value(value),
+            None => Reference::Null
+        }
     }
 }

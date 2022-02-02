@@ -1,10 +1,17 @@
 #[macro_use]
 pub mod access_flags;
 #[macro_use]
-pub mod utils;
+pub(crate) mod utils;
 pub mod method;
 pub mod field;
-pub mod class;
-pub mod constant_pool;
+mod class;
+pub(crate) mod constant_pool;
 pub mod module;
-pub mod record;
+mod record;
+
+pub use class::Class;
+pub use class::InnerClassInfo;
+pub use constant_pool::ConstantPool;
+pub use field::Field;
+pub use method::Method;
+pub use record::RecordComponent;

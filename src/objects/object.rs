@@ -1,5 +1,5 @@
 use std::sync::{Arc, RwLock};
-use crate::types::class::Class;
+use crate::types::Class;
 use crate::utils::vm_types::ArrayType;
 
 /// Represents something that has been allocated on the heap by the VM, such as an object
@@ -12,10 +12,6 @@ pub trait HeapObject {
     fn equals(&self, other: &Self) -> bool {
         self as *const Self == other as *const Self
     }
-}
-
-pub trait ReferenceHeapObject: HeapObject {
-    fn class(&self) -> &Class;
 }
 
 macro_rules! impl_getter_setter {
@@ -114,12 +110,6 @@ macro_rules! impl_heap_object {
                 self.length
             }
         }
-
-        impl ReferenceHeapObject for $T {
-            fn class(&self) -> &Class {
-                &self.class
-            }
-        }
     }
 }
 
@@ -140,6 +130,10 @@ impl InstanceObject {
             length,
             fields: RwLock::new(Vec::with_capacity(length))
         }
+    }
+
+    pub fn class(&self) -> &Class {
+        &self.class
     }
 
     impl_getter_setter!(fields);
@@ -173,6 +167,10 @@ impl ReferenceArrayObject {
         }
     }
 
+    pub fn class(&self) -> &Class {
+        &self.class
+    }
+
     pub fn element_class(&self) -> &Class {
         &self.element_class
     }
@@ -181,7 +179,6 @@ impl ReferenceArrayObject {
         self.elements.read().unwrap().get(index).map(|value| Arc::clone(value))
     }
 
-    #[allow(unused_must_use)]
     pub fn set(&self, index: usize, value: Arc<InstanceObject>) {
         assert!(index < self.length, "Index {} out of bounds for length {}!", index, self.length);
         self.elements.write().unwrap().insert(index, value);

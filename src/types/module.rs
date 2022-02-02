@@ -1,9 +1,9 @@
 use bytes::{Buf, Bytes};
 use internship::IStr;
-use crate::class_file::version::ClassFileVersion;
-use crate::types::constant_pool::ConstantPool;
-use crate::utils::buffer::BufferExtras;
+use crate::class_file::ClassFileVersion;
+use crate::utils::BufferExtras;
 use super::access_flags::*;
+use super::ConstantPool;
 use super::constant_pool::{MODULE_TAG, PACKAGE_TAG};
 
 pub struct Module {
@@ -49,13 +49,17 @@ impl Module {
                 must explicitly require the base module!", name, class_file_name);
         }
 
-        let requires = buf.get_generic_array(requires_count as usize,
-                                             |buf| ModuleRequires::parse(class_file_name, pool, buf,
-                                                                         class_version, &name));
-        let exports = buf.get_generic_u16_array(|buf| ModuleExports::parse(class_file_name, pool, buf));
+        let requires = buf.get_generic_array(requires_count as usize, |buf| {
+            ModuleRequires::parse(class_file_name, pool, buf, class_version, &name)
+        });
+        let exports = buf.get_generic_u16_array(|buf| {
+            ModuleExports::parse(class_file_name, pool, buf)
+        });
         let opens = buf.get_generic_u16_array(|buf| ModuleOpens::parse(class_file_name, pool, buf));
         let uses = buf.get_u16_array();
-        let provides = buf.get_generic_u16_array(|buf| ModuleProvides::parse(class_file_name, pool, buf));
+        let provides = buf.get_generic_u16_array(|buf| {
+            ModuleProvides::parse(class_file_name, pool, buf)
+        });
         Module { name, access_flags, version, requires, exports, opens, uses, provides }
     }
 
@@ -81,9 +85,10 @@ impl Module {
         }
     }
 
-    pub fn version(&self) -> Option<&str> {
-        self.version.as_ref().map(|value| value.as_str())
-    }
+    // TODO: Procedural macros
+    named!();
+    versioned!();
+    flagged_mandated!();
 
     pub fn requires(&self) -> &[ModuleRequires] {
         self.requires.as_slice()
@@ -110,10 +115,7 @@ impl Module {
     }
 }
 
-impl_nameable!(Module);
-impl_versioned!(Module);
 impl_accessible!(Module);
-impl_accessible!(Module, MandatedAccessible);
 
 pub trait ModuleComponent {
 }
@@ -123,13 +125,7 @@ macro_rules! module_component_impl {
         impl ModuleComponent for $T {
         }
 
-        impl Accessible for $T {
-            fn flags(&self) -> u16 {
-                self.access_flags
-            }
-        }
-
-        impl_accessible!($T, MandatedAccessible);
+        impl_accessible!($T);
     }
 }
 
@@ -167,12 +163,11 @@ impl ModuleRequires {
         }
     }
 
+    versioned!();
+    flagged_mandated!();
+
     pub fn module_index(&self) -> u16 {
         self.module_index
-    }
-
-    pub fn version(&self) -> Option<&str> {
-        self.version.as_ref().map(|value| value.as_str())
     }
 }
 
@@ -186,7 +181,6 @@ fn check_requires_flags(module_name: &str, version: &ClassFileVersion, flags: u1
 }
 
 module_component_impl!(ModuleRequires);
-impl_versioned!(ModuleRequires);
 
 macro_rules! common_exports_opens {
     ($T:ident) => {
@@ -209,6 +203,8 @@ macro_rules! common_exports_opens {
             pub const fn new(package_index: u16, access_flags: u16, to_indices: Vec<u16>) -> Self {
                 $T { package_index, access_flags, to_indices }
             }
+
+            flagged_mandated!();
 
             pub fn package_index(&self) -> u16 {
                 self.package_index
@@ -254,21 +250,21 @@ impl ModuleComponent for ModuleProvides {
 }
 
 macro_rules! generate_index_reader {
-    ($name:ident, $index_name:ident, $tag:expr) => {
+    ($name:ident, $index_name:literal, $tag:expr) => {
         fn $name(class_file_name: &str, pool: &ConstantPool, buf: &mut Bytes) -> u16 {
             let index = buf.get_u16();
             assert!(pool.has(index as usize), "Invalid $index_name index for module part \
                 in class file {}! Expected index {} to be in constant \
                 pool!", class_file_name, index);
             let tag = pool.get_tag(index as usize)
-                .expect(&format!("Invalid $index_name index for module part in class file {}! \
-                    Expected tag at index {}!", class_file_name, index));
-            assert_eq!(tag, $tag, "Invalid $index_name index for module part in class file {}! \
-                Expected $index_name at index {}!", class_file_name, index);
+                .expect(&format!("Invalid {} index for module part in class file {}! \
+                    Expected tag at index {}!", $index_name, class_file_name, index));
+            assert_eq!(tag, $tag, "Invalid {} index for module part in class file {}! \
+                Expected {} at index {}!", $index_name, class_file_name, $index_name, index);
             index
         }
     }
 }
 
-generate_index_reader!(read_module_index, module, MODULE_TAG);
-generate_index_reader!(read_package_index, package, PACKAGE_TAG);
+generate_index_reader!(read_module_index, "module", MODULE_TAG);
+generate_index_reader!(read_package_index, "package", PACKAGE_TAG);

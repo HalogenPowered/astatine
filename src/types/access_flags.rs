@@ -66,63 +66,50 @@ macro_rules! impl_accessible {
                 self.access_flags
             }
         }
-    };
-    ($T:ident, $U:ident) => {
-        impl $U for $T {
+    }
+}
+
+macro_rules! access_flag {
+    ($name:ident) => {
+        paste::paste! {
+            pub fn [<is_ $name>](&self) -> bool {
+                (self.flags() & [<ACC_ $name:upper>]) != 0
+            }
         }
     }
 }
 
-pub trait FinalAccessible: Accessible {
-    fn is_final(&self) -> bool {
-        self.flags() & ACC_FINAL != 0
+macro_rules! flagged_final {
+    () => { access_flag!(final); }
+}
+
+macro_rules! flagged_mandated {
+    () => { access_flag!(mandated); }
+}
+
+macro_rules! flagged_public {
+    () => { access_flag!(public); }
+}
+
+macro_rules! flagged_abstract {
+    () => { access_flag!(abstract); }
+}
+
+macro_rules! flagged_enum {
+    () => { access_flag!(enum); }
+}
+
+macro_rules! flagged_private_protected_static {
+    () => {
+        access_flag!(private);
+        access_flag!(protected);
+        access_flag!(static);
     }
 }
 
-pub trait MandatedAccessible: Accessible {
-    fn is_mandated(&self) -> bool {
-        self.flags() & ACC_MANDATED != 0
-    }
-}
-
-pub trait PublicAccessible: Accessible {
-    fn is_public(&self) -> bool {
-        self.flags() & ACC_PUBLIC != 0
-    }
-}
-
-pub trait AbstractAccessible: Accessible {
-    fn is_abstract(&self) -> bool {
-        self.flags() & ACC_ABSTRACT != 0
-    }
-}
-
-pub trait EnumAccessible: Accessible {
-    fn is_enum(&self) -> bool {
-        self.flags() & ACC_ENUM != 0
-    }
-}
-
-pub trait PrivateProtectedStaticAccessible: Accessible {
-    fn is_private(&self) -> bool {
-        self.flags() & ACC_PRIVATE != 0
-    }
-
-    fn is_protected(&self) -> bool {
-        self.flags() & ACC_PROTECTED != 0
-    }
-
-    fn is_static(&self) -> bool {
-        self.flags() & ACC_STATIC != 0
-    }
-}
-
-pub trait InterfaceAnnotationAccessible: Accessible {
-    fn is_interface(&self) -> bool {
-        self.flags() & ACC_INTERFACE != 0
-    }
-
-    fn is_annotation(&self) -> bool {
-        self.flags() & ACC_ANNOTATION != 0
+macro_rules! flagged_interface_annotation {
+    () => {
+        access_flag!(interface);
+        access_flag!(annotation);
     }
 }

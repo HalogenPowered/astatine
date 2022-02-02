@@ -1,14 +1,14 @@
 use bytes::{Buf, Bytes};
 use internship::IStr;
-use java_desc::FieldType;
 use crate::class_file::attribute_tags::TAG_SIGNATURE;
-use crate::class_file::utils::parse_generic_signature;
-use super::constant_pool::ConstantPool;
+use crate::class_file::parse_generic_signature;
+use crate::utils::descriptors::FieldDescriptor;
+use super::ConstantPool;
 
 #[derive(Debug)]
 pub struct RecordComponent {
     name: IStr,
-    descriptor: FieldType,
+    descriptor: FieldDescriptor,
     generic_signature: Option<IStr>
 }
 
@@ -20,7 +20,7 @@ impl RecordComponent {
                 index {} in constant pool!", class_file_name, name_index));
         let descriptor_index = buf.get_u16();
         let descriptor = pool.get_utf8(descriptor_index as usize)
-            .and_then(|value| FieldType::parse(value.as_str()))
+            .and_then(|value| FieldDescriptor::parse(value.as_str()))
             .expect(&format!("Invalid record component for class_file file {}! Expected \
                 descriptor at index {} in constant pool!", class_file_name, name_index));
 
@@ -29,16 +29,19 @@ impl RecordComponent {
         RecordComponent { name, descriptor, generic_signature }
     }
 
-    pub fn new(name: &str, descriptor: FieldType, generic_signature: Option<&str>) -> Self {
+    pub fn new(name: &str, descriptor: FieldDescriptor, generic_signature: Option<&str>) -> Self {
         RecordComponent {
             name: IStr::new(name),
             descriptor,
             generic_signature: generic_signature.map(|value| IStr::new(value))
         }
     }
-}
 
-impl_field!(RecordComponent);
+    // TODO: Procedural macros
+    named!();
+    describable!(FieldDescriptor);
+    generic!();
+}
 
 fn parse_attributes(
     class_file_name: &str,

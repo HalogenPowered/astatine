@@ -1,16 +1,15 @@
 use bytes::{Buf, Bytes};
 use internship::IStr;
-use java_desc::{FieldType, SingleType};
 use crate::class_file::attribute_tags::*;
-use crate::class_file::utils::parse_generic_signature;
-use crate::class_file::version::ClassFileVersion;
+use crate::class_file::{ClassFileVersion, parse_generic_signature};
+use crate::utils::descriptors::{FieldDescriptor, FieldType};
 use super::access_flags::*;
 use super::constant_pool::*;
 
 #[derive(Debug)]
 pub struct Field {
     name: IStr,
-    descriptor: FieldType,
+    descriptor: FieldDescriptor,
     generic_signature: Option<IStr>,
     access_flags: u16,
     constant_value: Option<ConstantValue>
@@ -51,7 +50,7 @@ impl Field {
 
         let descriptor_index = buf.get_u16();
         let descriptor = pool.get_utf8(descriptor_index as usize)
-            .and_then(|value| FieldType::parse(value.as_str()))
+            .and_then(|value| FieldDescriptor::parse(value.as_str()))
             .expect(&format!("Invalid field in class file {}! Expected descriptor at index {} in \
                 constant pool!", class_file_name, descriptor_index));
 
@@ -71,13 +70,22 @@ impl Field {
 
     pub fn new(
         name: IStr,
-        descriptor: FieldType,
+        descriptor: FieldDescriptor,
         generic_signature: Option<IStr>,
         access_flags: u16,
         constant_value: Option<ConstantValue>
     ) -> Self {
         Field { name, descriptor, generic_signature, access_flags, constant_value }
     }
+
+    // TODO: Procedural macros
+    named!();
+    describable!(FieldDescriptor);
+    generic!();
+    flagged_final!();
+    flagged_public!();
+    flagged_enum!();
+    flagged_private_protected_static!();
 
     pub fn constant_value(&self) -> Option<&ConstantValue> {
         self.constant_value.as_ref()
@@ -104,12 +112,7 @@ impl Field {
     }
 }
 
-impl_field!(Field);
 impl_accessible!(Field);
-impl_accessible!(Field, FinalAccessible);
-impl_accessible!(Field, PublicAccessible);
-impl_accessible!(Field, EnumAccessible);
-impl_accessible!(Field, PrivateProtectedStaticAccessible);
 
 fn parse_attributes(
     class_file_name: &str,
@@ -118,7 +121,7 @@ fn parse_attributes(
     version: &ClassFileVersion,
     mut attributes_count: u16,
     is_static: bool,
-    descriptor: &FieldType
+    descriptor: &FieldDescriptor
 ) -> (Option<ConstantValue>, Option<IStr>) {
     let mut constant_value = None;
     let mut generic_signature = None;
@@ -147,13 +150,11 @@ fn parse_attributes(
         } else if attribute_name == TAG_DEPRECATED {
             assert_eq!(attribute_length, 0, "Invalid deprecated attribute length {} for field in \
                 class file {}!", attribute_length, class_file_name);
-        } else if version >= &ClassFileVersion::RELEASE_1_5 {
-            if attribute_name == TAG_SIGNATURE {
-                assert!(generic_signature.is_none(), "Duplicate generic signature attribute found \
-                    for field in class file {}!", class_file_name);
-                generic_signature = parse_generic_signature(class_file_name, pool, buf,
-                                                            attribute_length, "field");
-            }
+        } else if version >= &ClassFileVersion::RELEASE_1_5 && attribute_name == TAG_SIGNATURE {
+            assert!(generic_signature.is_none(), "Duplicate generic signature attribute found \
+                for field in class file {}!", class_file_name);
+            generic_signature = parse_generic_signature(class_file_name, pool, buf,
+                                                        attribute_length, "field");
         } else {
             // Skip past any attribute that we don't recognise
             buf.advance(attribute_length as usize);
@@ -179,7 +180,7 @@ impl ConstantValue {
         class_file_name: &str,
         pool: &ConstantPool,
         index: u16,
-        descriptor: &FieldType
+        descriptor: &FieldDescriptor
     ) -> Option<Self> {
         assert!(index > 0 && index < (pool.len() as u16), "Bad constant value! Failed to find \
             value at index {}!", index);
@@ -187,29 +188,29 @@ impl ConstantValue {
         let value_type = pool.get_tag(index as usize)
             .expect(&format!("Invalid constant value for field in class file {}! Expected tag for \
                 constant value index {}!", class_file_name, index));
-        match &descriptor.base {
-            SingleType::Long => {
+        match &descriptor.base() {
+            FieldType::Long => {
                 assert_eq!(value_type, LONG_TAG, "Inconsistent constant value type! Expected \
                     long!");
                 pool.get_long(index as usize).map(|value| ConstantValue::Long(value))
             },
-            SingleType::Float => {
+            FieldType::Float => {
                 assert_eq!(value_type, FLOAT_TAG, "Inconsistent constant value type! Expected \
                     float!");
                 pool.get_float(index as usize).map(|value| ConstantValue::Float(value))
             },
-            SingleType::Double => {
+            FieldType::Double => {
                 assert_eq!(value_type, DOUBLE_TAG, "Inconsistent constant value type! Expected \
                     double!");
                 pool.get_double(index as usize).map(|value| ConstantValue::Double(value))
             },
-            SingleType::Byte | SingleType::Char | SingleType::Short | SingleType::Boolean |
-            SingleType::Int => {
+            FieldType::Byte | FieldType::Char | FieldType::Short | FieldType::Boolean |
+            FieldType::Int => {
                 assert_eq!(value_type, INT_TAG, "Inconsistent constant value type! Expected \
                     integer");
                 pool.get_int(index as usize).map(|value| ConstantValue::Integer(value))
             },
-            SingleType::Reference(name) => {
+            FieldType::Reference(name) => {
                 assert!(value_type == CLASS_TAG && name == STRING_DESCRIPTOR, "Inconsistent \
                     constant value type or descriptor! Expected string!");
                 pool.get_string(index as usize).map(|value| ConstantValue::String(value))

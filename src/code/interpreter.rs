@@ -2,17 +2,13 @@ mod constants;
 mod instructions;
 mod primitive_ops;
 
-use std::borrow::Borrow;
-use std::sync::Arc;
 use paste::paste;
 use constants::*;
 use instructions::*;
 use primitive_ops::*;
 use crate::class_file::code::CodeBlock;
-use crate::objects::heap::HeapSpace;
-use crate::objects::object::*;
-use crate::objects::reference::Reference;
-use crate::types::class::Class;
+use crate::objects::*;
+use crate::types::Class;
 
 pub struct Interpreter {
     _singleton: ()
@@ -47,7 +43,7 @@ impl Interpreter {
                 LLOAD => jvm_load_long(&mut frame, parser.next()),
                 FLOAD => jvm_load_float(&mut frame, parser.next()),
                 DLOAD => jvm_load_double(&mut frame, parser.next()),
-                ALOAD => load_ref(heap.borrow(), &mut frame, parser.next()),
+                ALOAD => load_ref(heap, &mut frame, parser.next()),
                 ILOAD_0..=ILOAD_3 => jvm_load_int(&mut frame, iload_index(op)),
                 LLOAD_0..=LLOAD_3 => jvm_load_long(&mut frame, lload_index(op)),
                 FLOAD_0..=FLOAD_3 => jvm_load_float(&mut frame, fload_index(op)),
@@ -220,7 +216,7 @@ pub enum MethodResult {
     Long(i64),
     Float(f32),
     Double(f64),
-    Reference(Reference<Arc<InstanceObject>>),
+    Reference(Reference<InstanceObject>),
     Void,
     Exception
 }

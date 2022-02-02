@@ -14,7 +14,7 @@ pub struct HeapSpace {
 macro_rules! ref_get_push {
     ($name:ident, $type:ty, $entry:ident) => {
         paste! {
-            pub fn [<get_ $name>](&self, index: usize) -> Reference<Arc<$type>> {
+            pub fn [<get_ $name>](&self, index: usize) -> Reference<$type> {
                 match self.allocated.read().unwrap().get(index) {
                     Some(HeapEntry::$entry(object)) => Reference::Value(Arc::clone(object)),
                     _ => Reference::Null

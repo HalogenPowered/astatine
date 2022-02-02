@@ -1,6 +1,7 @@
 use bytes::{Buf, Bytes};
 use internship::IStr;
-use crate::types::constant_pool::{ConstantPool, UTF8_TAG};
+use crate::types::ConstantPool;
+use crate::types::constant_pool::UTF8_TAG;
 
 pub(crate) fn parse_generic_signature(
     class_file_name: &str,

@@ -1,12 +1,11 @@
-use std::fmt::Debug;
-use std::sync::Arc;
 use enum_as_inner::EnumAsInner;
 use internship::IStr;
-use java_desc::{FieldType, MethodType};
-use crate::class_file::version::ClassFileVersion;
-use crate::types::class::Class;
-use crate::types::constant_pool::ConstantPool;
+use std::fmt::Debug;
+use std::sync::Arc;
+use crate::class_file::ClassFileVersion;
+use crate::types::{Class, ConstantPool};
 use crate::utils::constants::{CLASS_INITIALIZER_METHOD_NAME, OBJECT_INITIALIZER_METHOD_NAME};
+use crate::utils::descriptors::{FieldDescriptor, MethodDescriptor};
 
 #[derive(Debug)]
 pub struct MethodHandle {
@@ -125,15 +124,15 @@ macro_rules! impl_element_ref {
 pub struct FieldRef {
     class: Arc<Class>,
     name: IStr,
-    descriptor: FieldType
+    descriptor: FieldDescriptor
 }
 
 impl FieldRef {
-    pub const fn new(class: Arc<Class>, name: IStr, descriptor: FieldType) -> Self {
+    pub const fn new(class: Arc<Class>, name: IStr, descriptor: FieldDescriptor) -> Self {
         FieldRef { class, name, descriptor }
     }
 
-    pub fn descriptor(&self) -> &FieldType {
+    pub fn descriptor(&self) -> &FieldDescriptor {
         &self.descriptor
     }
 }
@@ -144,7 +143,7 @@ impl_element_ref!(FieldRef);
 pub struct MethodRef {
     class: Arc<Class>,
     name: IStr,
-    descriptor: MethodType,
+    descriptor: MethodDescriptor,
     is_interface: bool
 }
 
@@ -152,13 +151,13 @@ impl MethodRef {
     pub const fn new(
         class: Arc<Class>,
         name: IStr,
-        descriptor: MethodType,
+        descriptor: MethodDescriptor,
         is_interface: bool
     ) -> Self {
         MethodRef { class, name, descriptor, is_interface }
     }
 
-    pub fn descriptor(&self) -> &MethodType {
+    pub fn descriptor(&self) -> &MethodDescriptor {
         &self.descriptor
     }
 

@@ -1,6 +1,6 @@
 use bytes::{Buf, Bytes};
 use enum_as_inner::EnumAsInner;
-use crate::utils::buffer::BufferExtras;
+use crate::utils::BufferExtras;
 
 #[derive(Debug)]
 pub struct StackMapTable {

@@ -1,13 +1,9 @@
 use paste::paste;
 use std::sync::Arc;
-use crate::Class;
 use crate::class_file::code::CodeBlock;
-use crate::code::stack_frame::StackFrame;
-use crate::objects::heap::HeapSpace;
-use crate::objects::reference::Reference;
-use crate::objects::object::*;
-use crate::types::access_flags::*;
-use crate::types::utils::Nameable;
+use crate::code::StackFrame;
+use crate::objects::*;
+use crate::types::Class;
 use crate::utils::vm_types::ArrayType;
 use super::{CodeParser, MethodResult};
 use super::constants::*;
@@ -97,7 +93,7 @@ pub(super) fn load_array_byte(heap: &HeapSpace, frame: &mut StackFrame) {
             ArrayType::Byte => frame.push_byte_op(array.get_byte(index)),
             ArrayType::Boolean => frame.push_bool_op(array.get_bool(index)),
             _ => panic!("Invalid type of array for BASTORE! Expected array to be of type \
-                    byte or boolean, was {}!", array_type)
+                byte or boolean, was {}!", array_type)
         }
     })
 }
@@ -108,7 +104,7 @@ pub(super) fn store_array_byte(heap: &HeapSpace, frame: &mut StackFrame) {
             ArrayType::Byte => array.set_byte(index, frame.pop_byte_op()),
             ArrayType::Boolean => array.set_bool(index, frame.pop_bool_op()),
             _ => panic!("Invalid type of array for BASTORE! Expected array to be of type \
-                    byte or boolean, was {}!", array_type)
+                byte or boolean, was {}!", array_type)
         }
     })
 }
@@ -135,9 +131,9 @@ pub(super) fn check_cast(
     let class_index = ((parser.next() as u16) << 8) | (parser.next() as u16);
     let class = class.constant_pool().get_class(class_index as usize)
         .expect(&format!("Invalid cast check! Expected index {} to be in constant \
-                pool!", class_index));
+            pool!", class_index));
     assert!(reference.class().is_subclass(Arc::clone(&class)), "Cannot cast {} to {}!",
-            reference.class().name(), Arc::clone(&class).name());
+        reference.class().name(), Arc::clone(&class).name());
     frame.push_ref_op(reference.offset() as u32);
 }
 
@@ -166,7 +162,7 @@ fn array_primitive(
             mapper(frame, array, index)
         }
         panic!("Invalid type of array for {}! Expected array to be of type {}, was {}!",
-               instruction, expected_type, array_type)
+            instruction, expected_type, array_type)
     })
 }
 
@@ -281,7 +277,7 @@ pub(super) fn instanceof(
 
     let class = class.constant_pool().get_class(index as usize)
         .expect(&format!("Invalid class for instanceof check! Expected index {} to be in \
-                constant pool!", index));
+            constant pool!", index));
     let result = if reference.class().is_subclass(class) { 1 } else { 0 };
     frame.push_int_op(result);
 }
@@ -340,7 +336,7 @@ pub(super) fn new_ref(
     let index = ((parser.next() as u16) << 8) | (parser.next() as u16);
     let class = class.constant_pool().get_class(index as usize)
         .expect(&format!("Invalid object instantiation! Expected index {} to be in constant \
-                pool!", index));
+            pool!", index));
     if class.is_interface() || class.is_abstract() {
         panic!("Attempted to instantiate an interface or abstract class!");
     }
