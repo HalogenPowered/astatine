@@ -15,12 +15,15 @@
  */
 
 use internship::IStr;
-use nom::{named, terminated, is_not, char,
-          switch, take, value, map,
-          pair, fold_many_m_n, delimited, many0,
-          alt, combinator::complete};
+use nom::IResult;
+use nom::branch::alt;
+use nom::bytes::streaming::is_not;
+use nom::character::streaming::{anychar, char};
+use nom::combinator::{complete, fail, map};
+use nom::multi::{fold_many_m_n, many0};
+use nom::sequence::{delimited, pair, terminated};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Eq, PartialEq, Clone)]
 pub struct FieldDescriptor {
     base: FieldType,
     array_dimensions: u8
@@ -50,7 +53,7 @@ impl From<FieldType> for FieldDescriptor {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Eq, PartialEq, Clone)]
 pub struct MethodDescriptor {
     parameters: Vec<FieldDescriptor>,
     return_type: Option<FieldDescriptor>
@@ -74,7 +77,7 @@ impl MethodDescriptor {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Eq, PartialEq, Clone)]
 pub enum FieldType {
     Byte,
     Char,
@@ -93,6 +96,7 @@ impl FieldType {
     }
 }
 
+#[derive(Debug, Eq, PartialEq, Clone)]
 pub enum Descriptor {
     Field(FieldDescriptor),
     Method(MethodDescriptor)
@@ -113,31 +117,89 @@ impl From<MethodDescriptor> for Descriptor {
 // The following parser functions are all from here:
 // https://github.com/powerboat9/java-desc/blob/1b4e15fd9014962c9704ab69386c12898b44562b/src/lib.rs
 
-named!(semi_terminated<&str, &str>, terminated!(is_not!(";"), char!(';')));
+fn semi_terminated(input: &str) -> IResult<&str, &str> {
+    terminated(is_not(";"), char(';'))(input)
+}
 
-named!(parse_type<&str, FieldType>, switch!(take!(1),
-    "B" => value!(FieldType::Byte) |
-    "C" => value!(FieldType::Char) |
-    "D" => value!(FieldType::Double) |
-    "F" => value!(FieldType::Float) |
-    "I" => value!(FieldType::Int) |
-    "J" => value!(FieldType::Long) |
-    "S" => value!(FieldType::Short) |
-    "Z" => value!(FieldType::Boolean) |
-    "L" => map!(semi_terminated, |value| FieldType::Reference(IStr::new(value))))
-);
+fn parse_type(input: &str) -> IResult<&str, FieldType> {
+    let (input, char) = anychar(input)?;
+    match char {
+        'B' => Ok((input, FieldType::Byte)),
+        'C' => Ok((input, FieldType::Byte)),
+        'D' => Ok((input, FieldType::Double)),
+        'F' => Ok((input, FieldType::Float)),
+        'I' => Ok((input, FieldType::Int)),
+        'J' => Ok((input, FieldType::Long)),
+        'S' => Ok((input, FieldType::Short)),
+        'Z' => Ok((input, FieldType::Boolean)),
+        'L' => map(semi_terminated, |value| FieldType::Reference(IStr::new(value)))(input),
+        _ => fail(input)
+    }
+}
 
-named!(parse_field<&str, FieldDescriptor>, map!(
-    pair!(fold_many_m_n!(0, 255, char!('['), 0u8, |value, _| value + 1), parse_type),
-    |value: (u8, FieldType)| FieldDescriptor { base: value.1, array_dimensions: value.0 }
-));
+fn parse_field(input: &str) -> IResult<&str, FieldDescriptor> {
+    map(
+        pair(fold_many_m_n(0, 255, char('['), || 0u8, |value, _| value + 1), parse_type),
+        |value: (u8, FieldType)| FieldDescriptor { base: value.1, array_dimensions: value.0 }
+    )(input)
+}
 
-named!(parse_return<&str, Option<FieldDescriptor>>, alt!(
-    map!(parse_field, |v| Some(v)) |
-    map!(char!('V'), |_| None)
-));
+fn parse_return(input: &str) -> IResult<&str, Option<FieldDescriptor>> {
+    alt((
+        map(parse_field, |value| Some(value)),
+        map(char('V'), |_| None)
+    ))(input)
+}
 
-named!(parse_method<&str, MethodDescriptor>, map!(
-    pair!(delimited!(char!('('), many0!(parse_field), char!(')')), parse_return),
-    |value| MethodDescriptor::new(value.0, value.1)
-));
+fn parse_method(input: &str) -> IResult<&str, MethodDescriptor> {
+    map(
+        pair(delimited(char('('), many0(parse_field), char(')')), parse_return),
+        |value| MethodDescriptor::new(value.0, value.1)
+    )(input)
+}
+
+#[cfg(test)]
+mod tests {
+    use internship::IStr;
+    use super::{FieldDescriptor, FieldType, MethodDescriptor};
+
+    #[test]
+    fn fields() {
+        assert_eq!(FieldDescriptor::parse("[[[Lfoo bar net;"), Some(FieldDescriptor {
+            base: FieldType::Reference(IStr::new("foo bar net")), array_dimensions: 3
+        }));
+    }
+
+    #[test]
+    fn methods() {
+        assert_eq!(MethodDescriptor::parse("([B[[LFoo;I)[LNetwork;"), Some(MethodDescriptor {
+            parameters: vec![FieldDescriptor {
+                base: FieldType::Byte,
+                array_dimensions: 1
+            }, FieldDescriptor {
+                base: FieldType::Reference(IStr::new("Foo")),
+                array_dimensions: 2
+            }, FieldDescriptor {
+                base: FieldType::Int,
+                array_dimensions: 0
+            }],
+            return_type: Some(FieldDescriptor {
+                base: FieldType::Reference(IStr::new("Network")),
+                array_dimensions: 1
+            })
+        }));
+        assert_eq!(MethodDescriptor::parse("([B[[LFoo;I)V"), Some(MethodDescriptor {
+            parameters: vec![FieldDescriptor {
+                base: FieldType::Byte,
+                array_dimensions: 1
+            }, FieldDescriptor {
+                base: FieldType::Reference(IStr::new("Foo")),
+                array_dimensions: 2
+            }, FieldDescriptor {
+                base: FieldType::Int,
+                array_dimensions: 0
+            }],
+            return_type: None
+        }))
+    }
+}
