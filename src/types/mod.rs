@@ -14,10 +14,7 @@
  * Street, Fifth Floor, Boston, MA 02110-1301, USA.
  */
 
-#[macro_use]
 pub mod access_flags;
-#[macro_use]
-pub(crate) mod utils;
 pub mod method;
 pub mod field;
 mod class;

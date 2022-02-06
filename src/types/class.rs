@@ -18,6 +18,7 @@ use bytes::{Buf, Bytes};
 use internship::IStr;
 use std::fs;
 use std::sync::Arc;
+use astatine_macros::{Nameable, accessible};
 use crate::class_file::attribute_tags::*;
 use crate::class_file::{ClassLoader, ClassFileVersion};
 use crate::types::method::BootstrapMethod;
@@ -29,7 +30,8 @@ use super::field::Field;
 use super::method::Method;
 use super::RecordComponent;
 
-#[derive(Debug)]
+#[accessible(final, public, abstract, enum, interface, annotation)]
+#[derive(Debug, Nameable)]
 pub struct Class {
     loader: Arc<ClassLoader>,
     version: ClassFileVersion,
@@ -159,14 +161,6 @@ impl Class {
         self
     }
 
-    // TODO: Procedural macros
-    named!();
-    flagged_final!();
-    flagged_public!();
-    flagged_abstract!();
-    flagged_enum!();
-    flagged_interface_annotation!();
-
     pub fn loader(&self) -> Arc<ClassLoader> {
         Arc::clone(&self.loader)
     }
@@ -243,8 +237,6 @@ impl Class {
     }
 }
 
-impl_accessible!(Class);
-
 fn resolve_superclass(
     loader: Arc<ClassLoader>,
     class_file_name: &str,
@@ -264,7 +256,8 @@ fn resolve_superclass(
     pool.get_class_no_holder(index as usize, loader)
 }
 
-#[derive(Debug)]
+#[accessible(final, public, abstract, enum, private, protected, static, interface, annotation)]
+#[derive(Debug, Nameable)]
 pub struct InnerClassInfo {
     index: u16,
     name: IStr,
@@ -288,14 +281,6 @@ impl InnerClassInfo {
         InnerClassInfo { index, name: IStr::new(name), access_flags, outer_index }
     }
 
-    named!();
-    flagged_final!();
-    flagged_public!();
-    flagged_abstract!();
-    flagged_enum!();
-    flagged_private_protected_static!();
-    flagged_interface_annotation!();
-
     pub fn index(&self) -> u16 {
         self.index
     }
@@ -304,8 +289,6 @@ impl InnerClassInfo {
         self.outer_index
     }
 }
-
-impl_accessible!(InnerClassInfo);
 
 fn parse_attributes(
     class_file_name: &str,

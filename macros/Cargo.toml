@@ -1,0 +1,14 @@
+[package]
+name = "astatine-macros"
+version = "0.1.0"
+authors = ["Callum Seabrook <callum.seabrook@prevarinite.com>"]
+edition = "2021"
+description = "All the procedural macros used by Astatine."
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = "1.0.36"
+syn = { version = "1.0.86", features = ["full", "proc-macro"] }
+quote = "1.0.15"

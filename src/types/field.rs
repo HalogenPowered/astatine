@@ -14,6 +14,7 @@
  * Street, Fifth Floor, Boston, MA 02110-1301, USA.
  */
 
+use astatine_macros::{FieldDescribable, Nameable, Generic, accessible};
 use bytes::{Buf, Bytes};
 use internship::IStr;
 use crate::class_file::attribute_tags::*;
@@ -22,7 +23,8 @@ use crate::utils::descriptors::{FieldDescriptor, FieldType};
 use super::access_flags::*;
 use super::constant_pool::*;
 
-#[derive(Debug)]
+#[accessible(final, public, enum, private, protected, static)]
+#[derive(Debug, Nameable, FieldDescribable, Generic)]
 pub struct Field {
     name: IStr,
     descriptor: FieldDescriptor,
@@ -94,15 +96,6 @@ impl Field {
         Field { name, descriptor, generic_signature, access_flags, constant_value }
     }
 
-    // TODO: Procedural macros
-    named!();
-    describable!(FieldDescriptor);
-    generic!();
-    flagged_final!();
-    flagged_public!();
-    flagged_enum!();
-    flagged_private_protected_static!();
-
     pub fn constant_value(&self) -> Option<&ConstantValue> {
         self.constant_value.as_ref()
     }
@@ -127,8 +120,6 @@ impl Field {
         self.access_flags & ACC_TRANSIENT != 0
     }
 }
-
-impl_accessible!(Field);
 
 fn parse_attributes(
     class_file_name: &str,

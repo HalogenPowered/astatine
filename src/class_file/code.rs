@@ -18,6 +18,7 @@ use bytes::{Buf, Bytes};
 use internship::IStr;
 use std::collections::HashMap;
 use std::sync::Arc;
+use astatine_macros::{FieldDescribable, Nameable};
 use crate::code::StackFrame;
 use crate::types::{Class, ConstantPool};
 use crate::utils::BufferExtras;
@@ -237,7 +238,7 @@ impl LocalVariableTable {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Nameable, FieldDescribable)]
 pub struct LocalVariable {
     name: IStr,
     descriptor: FieldDescriptor,
@@ -268,15 +269,6 @@ impl LocalVariable {
 
     pub fn new(name: &str, descriptor: FieldDescriptor, start_pc: u16, length: u16, index: u16) -> Self {
         LocalVariable { name: IStr::new(name), descriptor, start_pc, length, index }
-    }
-
-    // TODO: Procedural macros
-    pub fn name(&self) -> &str {
-        self.name.as_str()
-    }
-
-    pub fn descriptor(&self) -> &FieldDescriptor {
-        &self.descriptor
     }
 
     pub fn start_pc(&self) -> u16 {

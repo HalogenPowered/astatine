@@ -153,6 +153,7 @@ pub(super) fn check_cast(
     frame.push_ref_op(reference.offset() as u32);
 }
 
+#[inline]
 fn common_array_primitive(
     heap: &HeapSpace,
     frame: &mut StackFrame,
@@ -165,6 +166,7 @@ fn common_array_primitive(
     mapper(frame, array_ref, array_type, index)
 }
 
+#[inline]
 fn array_primitive(
     heap: &HeapSpace,
     frame: &mut StackFrame,
@@ -388,7 +390,7 @@ pub(super) fn new_ref_array(
 }
 
 pub(super) fn new_type_array(heap: &HeapSpace, frame: &mut StackFrame, parser: &mut CodeParser) {
-    let array_type = ArrayType::from(parser.next());
+    let array_type = ArrayType::from(parser.next()).expect("Invalid array type!");
     let count = frame.pop_int_op();
     let offset = heap.len(); // Index of next element will be the current length
     let array = TypeArrayObject::new(offset, array_type, count as usize);

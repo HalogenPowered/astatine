@@ -33,4 +33,5 @@ fn main() {
     let loader = Arc::new(ClassLoader::new());
     let class = Arc::new(Class::parse(loader, input)).initialize();
     println!("{:#?}", class);
+    println!("{}", class.is_public());
 }

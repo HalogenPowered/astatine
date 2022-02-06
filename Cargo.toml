@@ -20,3 +20,4 @@ paste = "1.0.6"
 internship = "0.6.0"
 enum-as-inner = "0.3.3"
 nom = "5.1.2"
+astatine-macros = { version = "0.1.0", path = "macros" }

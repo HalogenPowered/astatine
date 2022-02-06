@@ -18,6 +18,7 @@ use enum_as_inner::EnumAsInner;
 use internship::IStr;
 use std::fmt::Debug;
 use std::sync::Arc;
+use astatine_macros::{FieldDescribable, MethodDescribable};
 use crate::class_file::ClassFileVersion;
 use crate::types::{Class, ConstantPool};
 use crate::utils::constants::{CLASS_INITIALIZER_METHOD_NAME, OBJECT_INITIALIZER_METHOD_NAME};
@@ -136,7 +137,7 @@ macro_rules! impl_element_ref {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, FieldDescribable)]
 pub struct FieldRef {
     class: Arc<Class>,
     name: IStr,
@@ -147,15 +148,11 @@ impl FieldRef {
     pub const fn new(class: Arc<Class>, name: IStr, descriptor: FieldDescriptor) -> Self {
         FieldRef { class, name, descriptor }
     }
-
-    pub fn descriptor(&self) -> &FieldDescriptor {
-        &self.descriptor
-    }
 }
 
 impl_element_ref!(FieldRef);
 
-#[derive(Debug)]
+#[derive(Debug, MethodDescribable)]
 pub struct MethodRef {
     class: Arc<Class>,
     name: IStr,
@@ -171,10 +168,6 @@ impl MethodRef {
         is_interface: bool
     ) -> Self {
         MethodRef { class, name, descriptor, is_interface }
-    }
-
-    pub fn descriptor(&self) -> &MethodDescriptor {
-        &self.descriptor
     }
 
     pub fn is_interface(&self) -> bool {

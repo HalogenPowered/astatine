@@ -14,6 +14,7 @@
  * Street, Fifth Floor, Boston, MA 02110-1301, USA.
  */
 
+use astatine_macros::{Nameable, Versioned, accessible};
 use bytes::{Buf, Bytes};
 use internship::IStr;
 use crate::class_file::ClassFileVersion;
@@ -22,6 +23,8 @@ use super::access_flags::*;
 use super::ConstantPool;
 use super::constant_pool::{MODULE_TAG, PACKAGE_TAG};
 
+#[accessible(mandated)]
+#[derive(Debug, Nameable, Versioned)]
 pub struct Module {
     name: IStr,
     access_flags: u16,
@@ -101,11 +104,6 @@ impl Module {
         }
     }
 
-    // TODO: Procedural macros
-    named!();
-    versioned!();
-    flagged_mandated!();
-
     pub fn requires(&self) -> &[ModuleRequires] {
         self.requires.as_slice()
     }
@@ -131,20 +129,8 @@ impl Module {
     }
 }
 
-impl_accessible!(Module);
-
-pub trait ModuleComponent {
-}
-
-macro_rules! module_component_impl {
-    ($T:ident) => {
-        impl ModuleComponent for $T {
-        }
-
-        impl_accessible!($T);
-    }
-}
-
+#[accessible(mandated)]
+#[derive(Debug, Versioned)]
 pub struct ModuleRequires {
     module_index: u16,
     access_flags: u16,
@@ -179,9 +165,6 @@ impl ModuleRequires {
         }
     }
 
-    versioned!();
-    flagged_mandated!();
-
     pub fn module_index(&self) -> u16 {
         self.module_index
     }
@@ -196,10 +179,10 @@ fn check_requires_flags(module_name: &str, version: &ClassFileVersion, flags: u1
     }
 }
 
-module_component_impl!(ModuleRequires);
-
 macro_rules! common_exports_opens {
     ($T:ident) => {
+        #[accessible(mandated)]
+        #[derive(Debug)]
         pub struct $T {
             package_index: u16,
             access_flags: u16,
@@ -220,8 +203,6 @@ macro_rules! common_exports_opens {
                 $T { package_index, access_flags, to_indices }
             }
 
-            flagged_mandated!();
-
             pub fn package_index(&self) -> u16 {
                 self.package_index
             }
@@ -234,8 +215,6 @@ macro_rules! common_exports_opens {
                 self.to_indices.as_slice()
             }
         }
-
-        module_component_impl!($T);
     }
 }
 
@@ -243,6 +222,7 @@ macro_rules! common_exports_opens {
 common_exports_opens!(ModuleExports);
 common_exports_opens!(ModuleOpens);
 
+#[derive(Debug)]
 pub struct ModuleProvides {
     module_index: u16,
     with_indices: Vec<u16>
@@ -260,9 +240,6 @@ impl ModuleProvides {
     pub fn module_index(&self) -> u16 {
         self.module_index
     }
-}
-
-impl ModuleComponent for ModuleProvides {
 }
 
 macro_rules! generate_index_reader {

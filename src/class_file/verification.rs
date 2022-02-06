@@ -15,7 +15,6 @@
  */
 
 use bytes::{Buf, Bytes};
-use enum_as_inner::EnumAsInner;
 use crate::utils::BufferExtras;
 
 #[derive(Debug)]
@@ -41,7 +40,8 @@ impl StackMapTable {
     }
 }
 
-#[derive(Debug, Copy, Clone, EnumAsInner)]
+#[derive(Debug, Copy, Clone)]
+#[repr(C)]
 pub enum StackFrameType {
     Same,
     SameLocalsOneStack,

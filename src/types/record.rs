@@ -14,6 +14,7 @@
  * Street, Fifth Floor, Boston, MA 02110-1301, USA.
  */
 
+use astatine_macros::{Nameable, FieldDescribable, Generic};
 use bytes::{Buf, Bytes};
 use internship::IStr;
 use crate::class_file::attribute_tags::TAG_SIGNATURE;
@@ -21,7 +22,7 @@ use crate::class_file::parse_generic_signature;
 use crate::utils::descriptors::FieldDescriptor;
 use super::ConstantPool;
 
-#[derive(Debug)]
+#[derive(Debug, Nameable, FieldDescribable, Generic)]
 pub struct RecordComponent {
     name: IStr,
     descriptor: FieldDescriptor,
@@ -52,11 +53,6 @@ impl RecordComponent {
             generic_signature: generic_signature.map(|value| IStr::new(value))
         }
     }
-
-    // TODO: Procedural macros
-    named!();
-    describable!(FieldDescriptor);
-    generic!();
 }
 
 fn parse_attributes(

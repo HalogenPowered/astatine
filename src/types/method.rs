@@ -14,6 +14,7 @@
  * Street, Fifth Floor, Boston, MA 02110-1301, USA.
  */
 
+use astatine_macros::{Nameable, MethodDescribable, accessible};
 use bytes::{Buf, Bytes};
 use internship::IStr;
 use std::sync::Arc;
@@ -27,7 +28,8 @@ use crate::utils::descriptors::MethodDescriptor;
 use super::access_flags::*;
 use super::constant_pool::ConstantPool;
 
-#[derive(Debug)]
+#[accessible(final, public, abstract, private, protected, static)]
+#[derive(Debug, Nameable, MethodDescribable)]
 pub struct Method {
     name: IStr,
     descriptor: MethodDescriptor,
@@ -143,14 +145,6 @@ impl Method {
         }
     }
 
-    // TODO: Procedural macros
-    named!();
-    describable!(MethodDescriptor);
-    flagged_final!();
-    flagged_public!();
-    flagged_abstract!();
-    flagged_private_protected_static!();
-
     pub fn parameters(&self) -> &[MethodParameter] {
         self.parameters.as_slice()
     }
@@ -188,8 +182,6 @@ impl Method {
     }
 }
 
-impl_accessible!(Method);
-
 #[derive(Debug)]
 pub struct BootstrapMethod {
     handle: Arc<MethodHandle>,
@@ -218,7 +210,8 @@ impl BootstrapMethod {
     }
 }
 
-#[derive(Debug)]
+#[accessible(final, mandated)]
+#[derive(Debug, Nameable)]
 pub struct MethodParameter {
     name: IStr,
     access_flags: u16
@@ -237,13 +230,7 @@ impl MethodParameter {
     pub fn new(name: &str, access_flags: u16) -> Self {
         MethodParameter { name: IStr::from(name), access_flags }
     }
-
-    named!();
-    flagged_final!();
-    flagged_mandated!();
 }
-
-impl_accessible!(MethodParameter);
 
 fn parse_attributes(
     loader: Arc<ClassLoader>,
