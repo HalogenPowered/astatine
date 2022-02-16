@@ -18,12 +18,11 @@ use astatine_macros::{Nameable, MethodDescribable, accessible};
 use bytes::{Buf, Bytes};
 use internship::IStr;
 use std::sync::Arc;
-use crate::class_file::attribute_tags::*;
-use crate::class_file::{ClassLoader, ClassFileVersion, parse_generic_signature};
+use crate::class_file::{ClassLoader, parse_generic_signature};
 use crate::class_file::code::CodeBlock;
+use crate::constants::*;
 use crate::objects::handles::MethodHandle;
 use crate::utils::BufferExtras;
-use crate::utils::constants::*;
 use crate::utils::descriptors::MethodDescriptor;
 use super::access_flags::*;
 use super::constant_pool::ConstantPool;
@@ -33,18 +32,12 @@ use super::constant_pool::ConstantPool;
 pub struct Method {
     name: IStr,
     descriptor: MethodDescriptor,
+    access_flags: AccessFlags,
     generic_signature: Option<IStr>,
-    access_flags: u16,
     parameters: Vec<MethodParameter>,
     code: Option<CodeBlock>,
-    checked_exception_indices: Vec<u16>,
-    other_flags: u8
+    checked_exception_indices: Vec<u16>
 }
-
-// These aren't part of the spec, this is just the best way I could think of compactly storing
-// extra flags.
-pub const METHOD_IS_CONSTRUCTOR: u8 = 0x01;
-pub const METHOD_IS_STATIC_INITIALIZER: u8 = 0x02;
 
 impl Method {
     pub(crate) fn parse(
@@ -52,101 +45,61 @@ impl Method {
         class_file_name: &str,
         pool: &ConstantPool,
         buf: &mut Bytes,
-        version: &ClassFileVersion,
-        class_flags: u16
+        major_version: u16,
+        class_flags: AccessFlags
     ) -> Self {
-        let mut access_flags = buf.get_u16();
+        let mut access_flags = buf.get_u16() as u32;
         let name_index = buf.get_u16();
         let name = pool.get_utf8(name_index as usize)
-            .expect(&format!("Invalid method in class file {}! Expected name index {} to be in \
-                constant pool!", class_file_name, name_index))
-            .clone();
-        let descriptor_index = buf.get_u16();
-        let descriptor = pool.get_utf8(descriptor_index as usize)
+            .expect(&format!("Invalid method! Expected name index {} to be in constant pool!", name_index));
+        let descriptor = pool.get_utf8(buf.get_u16() as usize)
             .and_then(|value| MethodDescriptor::parse(value.as_str()))
-            .expect(&format!("Invalid descriptor for method in class file {}!", class_file_name));
+            .expect("Invalid method descriptor!");
 
-        let mut other_flags: u8 = 0;
-        if name == CLASS_INITIALIZER_METHOD_NAME {
+        if name == JVM_CLASS_INITIALIZER_NAME {
             assert!(descriptor.return_type().is_none(), "Invalid method descriptor {:?} for \
                 static initializer ({})! Static initializer must return \
-                void!", descriptor, CLASS_INITIALIZER_METHOD_NAME);
-            if version >= &ClassFileVersion::RELEASE_7 {
+                void!", descriptor, JVM_CLASS_INITIALIZER_NAME);
+            if major_version >= JAVA_VERSION_7 {
                 assert!(descriptor.parameters().is_empty(), "Invalid method descriptor {:?} for \
                     static initializer ({})! Static initializer must take no \
-                    parameters!", descriptor, CLASS_INITIALIZER_METHOD_NAME);
+                    parameters!", descriptor, JVM_CLASS_INITIALIZER_NAME);
             }
-            other_flags |= METHOD_IS_STATIC_INITIALIZER;
-            if version < &ClassFileVersion::RELEASE_7 {
-                access_flags = ACC_STATIC;
-            } else if (access_flags & ACC_STATIC) == ACC_STATIC {
-                let extra_flag = if version <= &ClassFileVersion::RELEASE_16 { ACC_STRICT } else { 0 };
-                access_flags &= ACC_STATIC | extra_flag;
+            access_flags |= JVM_ACC_STATIC_INITIALIZER;
+            if major_version < JAVA_VERSION_7 {
+                access_flags = JVM_ACC_STATIC;
+            } else if (access_flags & JVM_ACC_STATIC) == JVM_ACC_STATIC {
+                let extra_flag = if major_version <= JAVA_VERSION_16 { JVM_ACC_STRICT } else { 0 };
+                access_flags &= JVM_ACC_STATIC | extra_flag;
             } else {
-                panic!("Invalid static initializer method ({}) in class file {}! Must be \
-                    static!", CLASS_INITIALIZER_METHOD_NAME, class_file_name);
+                panic!("Invalid static initializer method ({})! Must be static!", JVM_CLASS_INITIALIZER_NAME);
             }
         } else {
-            verify_method_flags(class_file_name, version, class_flags, access_flags, &name);
+            verify_method_flags(major_version, class_flags, access_flags, &name);
         }
-        if name == OBJECT_INITIALIZER_METHOD_NAME {
-            other_flags |= METHOD_IS_CONSTRUCTOR;
-            assert_eq!(class_flags & ACC_INTERFACE, 0, "Invalid class file {}! Interface cannot \
-                have a constructor!", class_file_name);
+        if name == JVM_OBJECT_INITIALIZER_NAME {
+            access_flags |= JVM_ACC_CONSTRUCTOR;
+            assert!(class_flags.is_interface(), "Invalid class file {}! Interface cannot have a \
+                constructor!", class_file_name);
         }
 
-        let attribute_count = buf.get_u16();
-        let (code, checked_exception_indices, parameters, generic_signature) = parse_attributes(
-            loader,
-            class_file_name,
-            pool,
-            buf,
-            version,
-            access_flags,
-            attribute_count
-        );
-        if access_flags & ACC_ABSTRACT == 0 && access_flags & ACC_NATIVE == 0 {
-            assert!(code.is_some(), "Non-abstract and non-native methods must have code \
+        let attributes = parse_attributes(loader, pool, buf, major_version, access_flags);
+        if access_flags & JVM_ACC_ABSTRACT == 0 && access_flags & JVM_ACC_NATIVE == 0 {
+            assert!(attributes.0.is_some(), "Non-abstract and non-native methods must have code \
                 attributes!");
         } else {
-            assert!(code.is_none(), "Abstract and native methods must not have code attributes!");
+            assert!(attributes.0.is_none(), "Abstract and native methods must not have code attributes!");
         }
+        let access_flags = AccessFlags::new(access_flags);
         Method {
             name,
             descriptor,
-            generic_signature,
             access_flags,
-            parameters,
-            code,
-            checked_exception_indices,
-            other_flags
+            generic_signature: attributes.3,
+            parameters: attributes.2.unwrap_or(Vec::new()),
+            code: attributes.0,
+            checked_exception_indices: attributes.1.unwrap_or(Vec::new())
         }
-    }
-
-    pub fn new(
-        name: &str,
-        descriptor: MethodDescriptor,
-        generic_signature: Option<&str>,
-        access_flags: u16,
-        parameters: Vec<MethodParameter>,
-        code: Option<CodeBlock>,
-        checked_exception_indices: Vec<u16>,
-        other_flags: u8
-    ) -> Self {
-        Method {
-            name: IStr::new(name),
-            descriptor,
-            generic_signature: generic_signature.map(|value| IStr::new(value)),
-            access_flags,
-            parameters,
-            code,
-            checked_exception_indices,
-            other_flags
-        }
-    }
-
-    pub fn parameters(&self) -> &[MethodParameter] {
-        self.parameters.as_slice()
     }
 
     pub fn code(&self) -> Option<&CodeBlock> {
@@ -154,31 +107,31 @@ impl Method {
     }
 
     pub fn is_constructor(&self) -> bool {
-        self.other_flags & METHOD_IS_CONSTRUCTOR != 0
+        self.access_flags.value() & JVM_ACC_CONSTRUCTOR != 0
     }
 
     pub fn is_static_initializer(&self) -> bool {
-        self.other_flags & METHOD_IS_STATIC_INITIALIZER != 0
+        self.access_flags.value() & JVM_ACC_STATIC_INITIALIZER != 0
     }
 
     pub fn is_synchronized(&self) -> bool {
-        self.access_flags & ACC_SYNCHRONIZED != 0
+        self.access_flags.value() & JVM_ACC_SYNCHRONIZED != 0
     }
 
     pub fn is_bridge(&self) -> bool {
-        self.access_flags & ACC_BRIDGE != 0
+        self.access_flags.value() & JVM_ACC_BRIDGE != 0
     }
 
     pub fn is_varargs(&self) -> bool {
-        self.access_flags & ACC_VARARGS != 0
+        self.access_flags.value() & JVM_ACC_VARARGS != 0
     }
 
     pub fn is_native(&self) -> bool {
-        self.access_flags & ACC_NATIVE != 0
+        self.access_flags.value() & JVM_ACC_NATIVE != 0
     }
 
     pub fn is_strict(&self) -> bool {
-        self.access_flags & ACC_STRICT != 0
+        self.access_flags.value() & JVM_ACC_STRICT != 0
     }
 }
 
@@ -189,20 +142,14 @@ pub struct BootstrapMethod {
 }
 
 impl BootstrapMethod {
-    pub(crate) fn parse(class_file_name: &str, pool: &ConstantPool, buf: &mut Bytes) -> Self {
-        let handle_index = buf.get_u16();
-        let handle = pool.get_method_handle(handle_index as usize)
-            .expect(&format!("Invalid bootstrap method in class file {}! Expected index {} to be \
-                in constant pool!", class_file_name, handle_index));
-        BootstrapMethod::new(handle, buf.get_u16_array())
+    pub(crate) fn parse(pool: &ConstantPool, buf: &mut Bytes) -> Self {
+        let handle = pool.get_method_handle(buf.get_u16() as usize)
+            .expect(&format!("Invalid bootstrap method! Expected index to be in constant pool!"));
+        BootstrapMethod { handle, arguments: buf.get_u16_array() }
     }
 
-    pub const fn new(handle: Arc<MethodHandle>, arguments: Vec<u16>) -> Self {
-        BootstrapMethod { handle, arguments }
-    }
-
-    pub fn handle(&self) -> Arc<MethodHandle> {
-        Arc::clone(&self.handle)
+    pub fn handle(&self) -> &MethodHandle {
+        &self.handle
     }
 
     pub fn arguments(&self) -> &[u16] {
@@ -210,83 +157,81 @@ impl BootstrapMethod {
     }
 }
 
-#[accessible(final, mandated)]
-#[derive(Debug, Nameable)]
+#[accessible(final)]
+#[derive(Debug)]
 pub struct MethodParameter {
-    name: IStr,
-    access_flags: u16
+    name: Option<IStr>,
+    access_flags: AccessFlags
 }
 
+const ACC_MANDATED: u32 = 0x8000;
+
 impl MethodParameter {
-    pub(crate) fn parse(class_file_name: &str, pool: &ConstantPool, buf: &mut Bytes) -> Self {
+    pub(crate) fn parse(pool: &ConstantPool, buf: &mut Bytes) -> Self {
         let name_index = buf.get_u16();
-        let name = pool.get_utf8(name_index as usize)
-            .expect(&format!("Invalid method parameter for method in class file {}! Expected name \
-                at index {}!", class_file_name, name_index));
-        let access_flags = buf.get_u16();
+        assert!(name_index == 0 || pool.has(name_index as usize));
+        let name = pool.get_utf8(name_index as usize);
+        let access_flags = AccessFlags::from(buf.get_u16());
         MethodParameter { name, access_flags }
     }
 
-    pub fn new(name: &str, access_flags: u16) -> Self {
-        MethodParameter { name: IStr::from(name), access_flags }
+    pub fn name(&self) -> Option<&str> {
+        self.name.as_ref().map(|value| value.as_str())
+    }
+
+    pub fn is_mandated(&self) -> bool {
+        self.access_flags.value() & ACC_MANDATED != 0
     }
 }
 
+type MethodAttributes = (Option<CodeBlock>, Option<Vec<u16>>, Option<Vec<MethodParameter>>, Option<IStr>);
+
 fn parse_attributes(
     loader: Arc<ClassLoader>,
-    class_file_name: &str,
     pool: &ConstantPool,
     buf: &mut Bytes,
-    version: &ClassFileVersion,
-    access_flags: u16,
-    mut attribute_count: u16
-) -> (Option<CodeBlock>, Vec<u16>, Vec<MethodParameter>, Option<IStr>) {
+    major_version: u16,
+    access_flags: u32
+) -> MethodAttributes {
     let mut code = None;
-    let mut checked_exception_indices = Vec::new();
-    let mut parameters = Vec::new();
+    let mut checked_exception_indices = None;
+    let mut parameters = None;
     let mut generic_signature = None;
 
+    let mut attribute_count = buf.get_u16();
     while attribute_count > 0 {
-        assert!(buf.len() >= 6, "Truncated method attributes for method in class \
-            file {}!", class_file_name);
-        let attribute_name_index = buf.get_u16();
+        assert!(buf.len() >= 6, "Truncated method attributes!");
+        let attribute_name = pool.get_utf8(buf.get_u16() as usize).unwrap();
         let attribute_length = buf.get_u32();
-        let attribute_name = pool.get_utf8(attribute_name_index as usize)
-            .expect(&format!("Invalid method attribute index {} in class file {}! Expected name \
-                to be in constant pool!", attribute_name_index, class_file_name));
 
-        if attribute_name == TAG_CODE {
-            assert!(code.is_none(), "Expected single code attribute for method in class \
-                file {}!", class_file_name);
-            assert!(access_flags & ACC_NATIVE == 0 && access_flags & ACC_ABSTRACT == 0, "Invalid \
-                code attribute for method in class file {}! Abstract and native methods must not \
-                have code attributes!", class_file_name);
-            code = Some(CodeBlock::parse(Arc::clone(&loader), class_file_name, pool, buf));
-        } else if attribute_name == TAG_EXCEPTIONS {
-            assert!(checked_exception_indices.is_empty(), "Expected single exceptions attribute \
-                for method in class file {}!", class_file_name);
+        if attribute_name == JVM_ATTRIBUTE_CODE {
+            assert!(code.is_none(), "Expected single code attribute for method!");
+            assert!(access_flags & JVM_ACC_NATIVE == 0 && access_flags & JVM_ACC_ABSTRACT == 0, "Invalid \
+                method code attribute! Abstract and native methods must not have code attributes!");
+            code = Some(CodeBlock::parse(Arc::clone(&loader), pool, buf));
+        } else if attribute_name == JVM_ATTRIBUTE_EXCEPTIONS {
+            assert!(checked_exception_indices.is_none(), "Expected single exceptions attribute for method!");
             let number_of_exceptions = buf.get_u16();
+            let mut exceptions = Vec::new();
             for _ in 0..number_of_exceptions {
-                checked_exception_indices.push(buf.get_u16());
+                exceptions.push(buf.get_u16());
             }
-        } else if attribute_name == TAG_METHOD_PARAMETERS {
-            assert!(parameters.is_empty(), "Expected single method parameters attribute for \
-                method in class file {}!", class_file_name);
+            checked_exception_indices = Some(exceptions)
+        } else if attribute_name == JVM_ATTRIBUTE_METHOD_PARAMETERS {
+            assert!(parameters.is_none(), "Expected single method parameters attribute for method!");
             let count = buf.get_u16();
+            let mut parameter_list = Vec::new();
             for _ in 0..count {
-                parameters.push(MethodParameter::parse(class_file_name, pool, buf));
+                parameter_list.push(MethodParameter::parse(pool, buf));
             }
-        } else if attribute_name == TAG_SYNTHETIC {
-            assert_eq!(attribute_length, 0, "Invalid synthetic attribute length {} for method in \
-                class file {}!", attribute_length, class_file_name);
-        } else if attribute_name == TAG_DEPRECATED {
-            assert_eq!(attribute_length, 0, "Invalid deprecated attribute length {} for method in \
-                class file {}!", attribute_length, class_file_name);
-        } else if version >= &ClassFileVersion::RELEASE_1_5 && attribute_name == TAG_SIGNATURE {
-            assert!(generic_signature.is_none(), "Duplicate generic signature attribute found \
-                for method in class file {}!", class_file_name);
-            generic_signature = parse_generic_signature(class_file_name, pool, buf,
-                                                        attribute_length, "method");
+            parameters = Some(parameter_list)
+        } else if attribute_name == JVM_ATTRIBUTE_SYNTHETIC {
+            assert_eq!(attribute_length, 0, "Invalid synthetic attribute length {} for method!", attribute_length);
+        } else if attribute_name == JVM_ATTRIBUTE_DEPRECATED {
+            assert_eq!(attribute_length, 0, "Invalid deprecated attribute length {} for method!", attribute_length);
+        } else if major_version >= JAVA_VERSION_1_5 && attribute_name == JVM_ATTRIBUTE_SIGNATURE {
+            assert!(generic_signature.is_none(), "Duplicate generic signature attribute found for method!");
+            generic_signature = parse_generic_signature(pool, buf, attribute_length, "method");
         } else {
             // Skip past any attribute that we don't recognise
             buf.advance(attribute_length as usize);
@@ -296,45 +241,38 @@ fn parse_attributes(
     (code, checked_exception_indices, parameters, generic_signature)
 }
 
-fn verify_method_flags(
-    class_file_name: &str,
-    version: &ClassFileVersion,
-    class_flags: u16,
-    flags: u16,
-    name: &str
-) {
-    let is_public = (flags & ACC_PUBLIC) != 0;
-    let is_private = (flags & ACC_PRIVATE) != 0;
-    let is_protected = (flags & ACC_PROTECTED) != 0;
-    let is_static = (flags & ACC_STATIC) != 0;
-    let is_final = (flags & ACC_FINAL) != 0;
-    let is_synchronized = (flags & ACC_SYNCHRONIZED) != 0;
-    let is_bridge = (flags & ACC_BRIDGE) != 0;
-    let is_native = (flags & ACC_NATIVE) != 0;
-    let is_abstract = (flags & ACC_ABSTRACT) != 0;
-    let is_strict = (flags & ACC_STRICT) != 0;
-    let major_1_5_or_above = version >= &ClassFileVersion::RELEASE_1_5;
-    let major_8_or_above = version >= &ClassFileVersion::RELEASE_8;
-    let major_17_or_above = version >= &ClassFileVersion::RELEASE_17;
-    let is_constructor = name == OBJECT_INITIALIZER_METHOD_NAME;
+fn verify_method_flags(major_version: u16, class_flags: AccessFlags, flags: u32, name: &str) {
+    let is_public = (flags & JVM_ACC_PUBLIC) != 0;
+    let is_private = (flags & JVM_ACC_PRIVATE) != 0;
+    let is_protected = (flags & JVM_ACC_PROTECTED) != 0;
+    let is_static = (flags & JVM_ACC_STATIC) != 0;
+    let is_final = (flags & JVM_ACC_FINAL) != 0;
+    let is_synchronized = (flags & JVM_ACC_SYNCHRONIZED) != 0;
+    let is_bridge = (flags & JVM_ACC_BRIDGE) != 0;
+    let is_native = (flags & JVM_ACC_NATIVE) != 0;
+    let is_abstract = (flags & JVM_ACC_ABSTRACT) != 0;
+    let is_strict = (flags & JVM_ACC_STRICT) != 0;
+    let major_1_5_or_above = major_version >= JAVA_VERSION_1_5;
+    let major_8_or_above = major_version >= JAVA_VERSION_8;
+    let major_17_or_above = major_version >= JAVA_VERSION_17;
+    let is_constructor = name == JVM_OBJECT_INITIALIZER_NAME;
 
-    let is_illegal;
-    if class_flags & ACC_INTERFACE != 0 {
+    let is_illegal = if class_flags.is_interface() {
         if major_8_or_above {
-            is_illegal = (is_public == is_private) || // Methods can't be both public and private
+            (is_public == is_private) || // Methods can't be both public and private
                 // None of these are allowed on interface methods
                 (is_native || is_protected || is_final || is_synchronized) ||
                 // Interface instance methods can't be private, static, or strict
-                (is_abstract && (is_private || is_static || (!major_17_or_above && is_strict)));
+                (is_abstract && (is_private || is_static || (!major_17_or_above && is_strict)))
         } else if major_1_5_or_above {
             // Interface instance methods must be public and abstract
-            is_illegal = !is_public || is_private || is_protected || is_static || is_final ||
-                is_synchronized || is_native || !is_abstract || is_strict;
+            !is_public || is_private || is_protected || is_static || is_final || is_synchronized |
+                is_native || !is_abstract || is_strict
         } else {
-            is_illegal = !is_public || is_static || is_final || is_native || !is_abstract;
+            !is_public || is_static || is_final || is_native || !is_abstract
         }
     } else {
-        is_illegal = has_illegal_visibility(flags) ||
+        has_illegal_visibility(flags) ||
             // Constructor methods are instance methods that must have bodies, must not be
             // generated bridge methods, and aren't final, as the class' access determines the
             // constructor's access.
@@ -343,16 +281,14 @@ fn verify_method_flags(
             // Abstract methods must be overridable by subclasses, and so none of these would make
             // sense.
             (is_abstract && (is_final || is_native || is_private || is_static ||
-                (major_1_5_or_above && (is_synchronized || (!major_17_or_above && is_strict)))));
-    }
-
-    assert!(!is_illegal, "Invalid method in class file {}! Access modifiers {} are \
-        illegal!", class_file_name, flags);
+                (major_1_5_or_above && (is_synchronized || (!major_17_or_above && is_strict)))))
+    };
+    assert!(!is_illegal, "Invalid method! Access modifiers {} are illegal!", flags);
 }
 
-fn has_illegal_visibility(flags: u16) -> bool {
-    let is_public = (flags & ACC_PUBLIC) != 0;
-    let is_protected = (flags & ACC_PROTECTED) != 0;
-    let is_private = (flags & ACC_PRIVATE) != 0;
+fn has_illegal_visibility(flags: u32) -> bool {
+    let is_public = (flags & JVM_ACC_PUBLIC) != 0;
+    let is_protected = (flags & JVM_ACC_PROTECTED) != 0;
+    let is_private = (flags & JVM_ACC_PRIVATE) != 0;
     return (is_public && is_protected) || (is_public && is_private) || (is_protected && is_private)
 }

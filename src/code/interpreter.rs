@@ -14,15 +14,14 @@
  * Street, Fifth Floor, Boston, MA 02110-1301, USA.
  */
 
-mod constants;
 mod instructions;
 mod primitive_ops;
 
 use paste::paste;
-use constants::*;
 use instructions::*;
 use primitive_ops::*;
 use crate::class_file::code::CodeBlock;
+use crate::constants::*;
 use crate::objects::*;
 use crate::types::Class;
 
@@ -46,147 +45,157 @@ impl Interpreter {
         while !parser.is_empty() {
             let op = parser.next();
             match op {
-                NOP => {},
-                ACONST_NULL => frame.push_null_op(),
-                ICONST_M1..=ICONST_5 => frame.push_int_op((op as i32) - (ICONST_0 as i32)),
-                LCONST_0..=LCONST_1 => frame.push_long_op((op as i64) - (LCONST_0 as i64)),
-                FCONST_0..=FCONST_2 => frame.push_float_op((op as f32) - (FCONST_0 as f32)),
-                DCONST_0..=DCONST_1 => frame.push_double_op((op as f64) - (DCONST_0 as f64)),
-                BIPUSH => frame.push_byte_op(parser.next() as i8),
-                SIPUSH => frame.push_short_op((((parser.next() as i32) << 8) | (parser.next() as i32)) as i16),
+                JVM_OPCODE_NOP => {}
+                JVM_OPCODE_ACONST_NULL => frame.push_null_op(),
+                JVM_OPCODE_ICONST_M1..=JVM_OPCODE_ICONST_5 => {
+                    frame.push_int_op((op as i32) - (JVM_OPCODE_ICONST_0 as i32))
+                }
+                JVM_OPCODE_LCONST_0 | JVM_OPCODE_LCONST_1 => {
+                    frame.push_long_op((op as i64) - (JVM_OPCODE_LCONST_0 as i64))
+                }
+                JVM_OPCODE_FCONST_0..=JVM_OPCODE_FCONST_2 => {
+                    frame.push_float_op((op as f32) - (JVM_OPCODE_FCONST_0 as f32))
+                }
+                JVM_OPCODE_DCONST_0 | JVM_OPCODE_DCONST_1 => {
+                    frame.push_double_op((op as f64) - (JVM_OPCODE_DCONST_0 as f64))
+                }
+                JVM_OPCODE_BIPUSH => frame.push_byte_op(parser.next() as i8),
+                JVM_OPCODE_SIPUSH => {
+                    frame.push_short_op((((parser.next() as i32) << 8) | (parser.next() as i32)) as i16)
+                }
                 // TODO: LDC, LDC_W, and LDC2_W
-                ILOAD => jvm_load_int(&mut frame, parser.next()),
-                LLOAD => jvm_load_long(&mut frame, parser.next()),
-                FLOAD => jvm_load_float(&mut frame, parser.next()),
-                DLOAD => jvm_load_double(&mut frame, parser.next()),
-                ALOAD => load_ref(heap, &mut frame, parser.next()),
-                ILOAD_0..=ILOAD_3 => jvm_load_int(&mut frame, iload_index(op)),
-                LLOAD_0..=LLOAD_3 => jvm_load_long(&mut frame, lload_index(op)),
-                FLOAD_0..=FLOAD_3 => jvm_load_float(&mut frame, fload_index(op)),
-                DLOAD_0..=DLOAD_3 => jvm_load_double(&mut frame, dload_index(op)),
-                ALOAD_0..=ALOAD_3 => load_ref(heap, &mut frame, aload_index(op)),
-                IALOAD => load_array_int(heap, &mut frame),
-                LALOAD => load_array_long(heap, &mut frame),
-                FALOAD => load_array_float(heap, &mut frame),
-                DALOAD => load_array_double(heap, &mut frame),
-                AALOAD => load_array_ref(heap, &mut frame),
-                BALOAD => load_array_byte(heap, &mut frame),
-                CALOAD => load_array_char(heap, &mut frame),
-                SALOAD => load_array_short(heap, &mut frame),
-                ISTORE => jvm_store_int(&mut frame, parser.next()),
-                LSTORE => jvm_store_long(&mut frame, parser.next()),
-                FSTORE => jvm_store_float(&mut frame, parser.next()),
-                DSTORE => jvm_store_double(&mut frame, parser.next()),
-                ASTORE => store_ref(heap, &mut frame, parser.next()),
-                ISTORE_0..=ISTORE_3 => jvm_store_int(&mut frame, istore_index(op)),
-                LSTORE_0..=LSTORE_3 => jvm_store_long(&mut frame, lstore_index(op)),
-                FSTORE_0..=FSTORE_3 => jvm_store_float(&mut frame, fstore_index(op)),
-                DSTORE_0..=DSTORE_3 => jvm_store_double(&mut frame, dstore_index(op)),
-                ASTORE_0..=ASTORE_3 => store_ref(heap, &mut frame, astore_index(op)),
-                IASTORE => store_array_int(heap, &mut frame),
-                LASTORE => store_array_long(heap, &mut frame),
-                FASTORE => store_array_float(heap, &mut frame),
-                DASTORE => store_array_double(heap, &mut frame),
-                AASTORE => store_array_ref(heap, &mut frame),
-                BASTORE => store_array_byte(heap, &mut frame),
-                CASTORE => store_array_char(heap, &mut frame),
-                SASTORE => store_array_short(heap, &mut frame),
-                POP => pop(&mut frame, false),
-                POP2 => pop(&mut frame, true),
-                DUP => dup(&mut frame),
-                DUP_X1 => dup_x1(&mut frame),
-                DUP_X2 => dup_x2(&mut frame),
-                DUP2 => dup2(&mut frame),
-                DUP2_X1 => dup2_x1(&mut frame),
-                DUP2_X2 => dup2_x2(&mut frame),
-                SWAP => swap(&mut frame),
-                IADD => jvm_int_add(&mut frame),
-                LADD => jvm_long_add(&mut frame),
-                FADD => jvm_float_add(&mut frame),
-                DADD => jvm_double_add(&mut frame),
-                ISUB => jvm_int_sub(&mut frame),
-                LSUB => jvm_long_sub(&mut frame),
-                FSUB => jvm_float_sub(&mut frame),
-                DSUB => jvm_double_sub(&mut frame),
-                IMUL => jvm_int_mul(&mut frame),
-                LMUL => jvm_long_mul(&mut frame),
-                FMUL => jvm_float_mul(&mut frame),
-                DMUL => jvm_double_mul(&mut frame),
-                IDIV => jvm_int_div(&mut frame),
-                LDIV => jvm_long_div(&mut frame),
-                FDIV => jvm_float_div(&mut frame),
-                DDIV => jvm_double_div(&mut frame),
-                IREM => jvm_int_rem(&mut frame),
-                LREM => jvm_long_rem(&mut frame),
-                FREM => jvm_float_rem(&mut frame),
-                DREM => jvm_double_rem(&mut frame),
-                INEG => jvm_int_neg(&mut frame),
-                LNEG => jvm_long_neg(&mut frame),
-                FNEG => jvm_float_neg(&mut frame),
-                DNEG => jvm_double_neg(&mut frame),
-                ISHL => jvm_int_shl(&mut frame),
-                LSHL => jvm_long_shl(&mut frame),
-                ISHR => jvm_int_shr(&mut frame),
-                LSHR => jvm_long_shr(&mut frame),
-                IUSHR => jvm_int_ushr(&mut frame),
-                LUSHR => jvm_long_ushr(&mut frame),
-                IAND => jvm_int_and(&mut frame),
-                LAND => jvm_long_and(&mut frame),
-                IOR => jvm_int_or(&mut frame),
-                LOR => jvm_long_or(&mut frame),
-                IXOR => jvm_int_xor(&mut frame),
-                LXOR => jvm_long_xor(&mut frame),
-                IINC => jvm_int_inc(&mut frame),
-                I2L => jvm_int_to_long(&mut frame),
-                I2F => jvm_int_to_float(&mut frame),
-                I2D => jvm_int_to_double(&mut frame),
-                L2I => jvm_long_to_int(&mut frame),
-                L2F => jvm_long_to_float(&mut frame),
-                L2D => jvm_long_to_double(&mut frame),
-                F2I => jvm_float_to_int(&mut frame),
-                F2L => jvm_float_to_long(&mut frame),
-                F2D => jvm_float_to_double(&mut frame),
-                D2I => jvm_double_to_int(&mut frame),
-                D2L => jvm_double_to_long(&mut frame),
-                D2F => jvm_double_to_float(&mut frame),
-                I2B => jvm_int_to_byte(&mut frame),
-                I2C => jvm_int_to_char(&mut frame),
-                I2S => jvm_int_to_short(&mut frame),
-                LCMP => jvm_cmp_long(&mut frame),
-                FCMPL => jvm_cmp_float(&mut frame, false),
-                FCMPG => jvm_cmp_float(&mut frame, true),
-                DCMPL => jvm_cmp_double(&mut frame, false),
-                DCMPG => jvm_cmp_double(&mut frame, true),
-                IFEQ | IFNE | IFLT | IFGE | IFGT | IFLE => branch(&mut frame, &mut parser, op),
-                IF_ICMPEQ..=IF_ICMPLE => int_branch(&mut frame, &mut parser, op),
-                IF_ACMPEQ | IF_ACMPNE => ref_branch(heap, &mut frame, &mut parser, op),
-                GOTO => branch_seek(&mut parser),
-                JSR => jump_subroutine(&mut frame, &mut parser, false),
+                JVM_OPCODE_ILOAD => jvm_load_int(&mut frame, parser.next()),
+                JVM_OPCODE_LLOAD => jvm_load_long(&mut frame, parser.next()),
+                JVM_OPCODE_FLOAD => jvm_load_float(&mut frame, parser.next()),
+                JVM_OPCODE_DLOAD => jvm_load_double(&mut frame, parser.next()),
+                JVM_OPCODE_ALOAD => load_ref(heap, &mut frame, parser.next()),
+                JVM_OPCODE_ILOAD_0..=JVM_OPCODE_ILOAD_3 => jvm_load_int(&mut frame, iload_index(op)),
+                JVM_OPCODE_LLOAD_0..=JVM_OPCODE_LLOAD_3 => jvm_load_long(&mut frame, lload_index(op)),
+                JVM_OPCODE_FLOAD_0..=JVM_OPCODE_FLOAD_3 => jvm_load_float(&mut frame, fload_index(op)),
+                JVM_OPCODE_DLOAD_0..=JVM_OPCODE_DLOAD_3 => jvm_load_double(&mut frame, dload_index(op)),
+                JVM_OPCODE_ALOAD_0..=JVM_OPCODE_ALOAD_3 => load_ref(heap, &mut frame, aload_index(op)),
+                JVM_OPCODE_IALOAD => load_array_int(heap, &mut frame),
+                JVM_OPCODE_LALOAD => load_array_long(heap, &mut frame),
+                JVM_OPCODE_FALOAD => load_array_float(heap, &mut frame),
+                JVM_OPCODE_DALOAD => load_array_double(heap, &mut frame),
+                JVM_OPCODE_AALOAD => load_array_ref(heap, &mut frame),
+                JVM_OPCODE_BALOAD => load_array_byte(heap, &mut frame),
+                JVM_OPCODE_CALOAD => load_array_char(heap, &mut frame),
+                JVM_OPCODE_SALOAD => load_array_short(heap, &mut frame),
+                JVM_OPCODE_ISTORE => jvm_store_int(&mut frame, parser.next()),
+                JVM_OPCODE_LSTORE => jvm_store_long(&mut frame, parser.next()),
+                JVM_OPCODE_FSTORE => jvm_store_float(&mut frame, parser.next()),
+                JVM_OPCODE_DSTORE => jvm_store_double(&mut frame, parser.next()),
+                JVM_OPCODE_ASTORE => store_ref(heap, &mut frame, parser.next()),
+                JVM_OPCODE_ISTORE_0..=JVM_OPCODE_ISTORE_3 => jvm_store_int(&mut frame, istore_index(op)),
+                JVM_OPCODE_LSTORE_0..=JVM_OPCODE_LSTORE_3 => jvm_store_long(&mut frame, lstore_index(op)),
+                JVM_OPCODE_FSTORE_0..=JVM_OPCODE_FSTORE_3 => jvm_store_float(&mut frame, fstore_index(op)),
+                JVM_OPCODE_DSTORE_0..=JVM_OPCODE_DSTORE_3 => jvm_store_double(&mut frame, dstore_index(op)),
+                JVM_OPCODE_ASTORE_0..=JVM_OPCODE_ASTORE_3 => store_ref(heap, &mut frame, astore_index(op)),
+                JVM_OPCODE_IASTORE => store_array_int(heap, &mut frame),
+                JVM_OPCODE_LASTORE => store_array_long(heap, &mut frame),
+                JVM_OPCODE_FASTORE => store_array_float(heap, &mut frame),
+                JVM_OPCODE_DASTORE => store_array_double(heap, &mut frame),
+                JVM_OPCODE_AASTORE => store_array_ref(heap, &mut frame),
+                JVM_OPCODE_BASTORE => store_array_byte(heap, &mut frame),
+                JVM_OPCODE_CASTORE => store_array_char(heap, &mut frame),
+                JVM_OPCODE_SASTORE => store_array_short(heap, &mut frame),
+                JVM_OPCODE_POP => pop(&mut frame, false),
+                JVM_OPCODE_POP2 => pop(&mut frame, true),
+                JVM_OPCODE_DUP => dup(&mut frame),
+                JVM_OPCODE_DUP_X1 => dup_x1(&mut frame),
+                JVM_OPCODE_DUP_X2 => dup_x2(&mut frame),
+                JVM_OPCODE_DUP2 => dup2(&mut frame),
+                JVM_OPCODE_DUP2_X1 => dup2_x1(&mut frame),
+                JVM_OPCODE_DUP2_X2 => dup2_x2(&mut frame),
+                JVM_OPCODE_SWAP => swap(&mut frame),
+                JVM_OPCODE_IADD => jvm_int_add(&mut frame),
+                JVM_OPCODE_LADD => jvm_long_add(&mut frame),
+                JVM_OPCODE_FADD => jvm_float_add(&mut frame),
+                JVM_OPCODE_DADD => jvm_double_add(&mut frame),
+                JVM_OPCODE_ISUB => jvm_int_sub(&mut frame),
+                JVM_OPCODE_LSUB => jvm_long_sub(&mut frame),
+                JVM_OPCODE_FSUB => jvm_float_sub(&mut frame),
+                JVM_OPCODE_DSUB => jvm_double_sub(&mut frame),
+                JVM_OPCODE_IMUL => jvm_int_mul(&mut frame),
+                JVM_OPCODE_LMUL => jvm_long_mul(&mut frame),
+                JVM_OPCODE_FMUL => jvm_float_mul(&mut frame),
+                JVM_OPCODE_DMUL => jvm_double_mul(&mut frame),
+                JVM_OPCODE_IDIV => jvm_int_div(&mut frame),
+                JVM_OPCODE_LDIV => jvm_long_div(&mut frame),
+                JVM_OPCODE_FDIV => jvm_float_div(&mut frame),
+                JVM_OPCODE_DDIV => jvm_double_div(&mut frame),
+                JVM_OPCODE_IREM => jvm_int_rem(&mut frame),
+                JVM_OPCODE_LREM => jvm_long_rem(&mut frame),
+                JVM_OPCODE_FREM => jvm_float_rem(&mut frame),
+                JVM_OPCODE_DREM => jvm_double_rem(&mut frame),
+                JVM_OPCODE_INEG => jvm_int_neg(&mut frame),
+                JVM_OPCODE_LNEG => jvm_long_neg(&mut frame),
+                JVM_OPCODE_FNEG => jvm_float_neg(&mut frame),
+                JVM_OPCODE_DNEG => jvm_double_neg(&mut frame),
+                JVM_OPCODE_ISHL => jvm_int_shl(&mut frame),
+                JVM_OPCODE_LSHL => jvm_long_shl(&mut frame),
+                JVM_OPCODE_ISHR => jvm_int_shr(&mut frame),
+                JVM_OPCODE_LSHR => jvm_long_shr(&mut frame),
+                JVM_OPCODE_IUSHR => jvm_int_ushr(&mut frame),
+                JVM_OPCODE_LUSHR => jvm_long_ushr(&mut frame),
+                JVM_OPCODE_IAND => jvm_int_and(&mut frame),
+                JVM_OPCODE_LAND => jvm_long_and(&mut frame),
+                JVM_OPCODE_IOR => jvm_int_or(&mut frame),
+                JVM_OPCODE_LOR => jvm_long_or(&mut frame),
+                JVM_OPCODE_IXOR => jvm_int_xor(&mut frame),
+                JVM_OPCODE_LXOR => jvm_long_xor(&mut frame),
+                JVM_OPCODE_IINC => jvm_int_inc(&mut frame),
+                JVM_OPCODE_I2L => jvm_int_to_long(&mut frame),
+                JVM_OPCODE_I2F => jvm_int_to_float(&mut frame),
+                JVM_OPCODE_I2D => jvm_int_to_double(&mut frame),
+                JVM_OPCODE_L2I => jvm_long_to_int(&mut frame),
+                JVM_OPCODE_L2F => jvm_long_to_float(&mut frame),
+                JVM_OPCODE_L2D => jvm_long_to_double(&mut frame),
+                JVM_OPCODE_F2I => jvm_float_to_int(&mut frame),
+                JVM_OPCODE_F2L => jvm_float_to_long(&mut frame),
+                JVM_OPCODE_F2D => jvm_float_to_double(&mut frame),
+                JVM_OPCODE_D2I => jvm_double_to_int(&mut frame),
+                JVM_OPCODE_D2L => jvm_double_to_long(&mut frame),
+                JVM_OPCODE_D2F => jvm_double_to_float(&mut frame),
+                JVM_OPCODE_I2B => jvm_int_to_byte(&mut frame),
+                JVM_OPCODE_I2C => jvm_int_to_char(&mut frame),
+                JVM_OPCODE_I2S => jvm_int_to_short(&mut frame),
+                JVM_OPCODE_LCMP => jvm_cmp_long(&mut frame),
+                JVM_OPCODE_FCMPL => jvm_cmp_float(&mut frame, false),
+                JVM_OPCODE_FCMPG => jvm_cmp_float(&mut frame, true),
+                JVM_OPCODE_DCMPL => jvm_cmp_double(&mut frame, false),
+                JVM_OPCODE_DCMPG => jvm_cmp_double(&mut frame, true),
+                JVM_OPCODE_IFEQ..=JVM_OPCODE_IFLE => branch(&mut frame, &mut parser, op),
+                JVM_OPCODE_IF_ICMPEQ..=JVM_OPCODE_IF_ICMPLE => int_branch(&mut frame, &mut parser, op),
+                JVM_OPCODE_IF_ACMPEQ | JVM_OPCODE_IF_ACMPNE => ref_branch(heap, &mut frame, &mut parser, op),
+                JVM_OPCODE_GOTO => branch_seek(&mut parser),
+                JVM_OPCODE_JSR => jump_subroutine(&mut frame, &mut parser, false),
                 // TODO: RET, TABLESWITCH, LOOKUPSWITCH
-                IRETURN => return MethodResult::Integer(frame.pop_int_op()),
-                LRETURN => return MethodResult::Long(frame.pop_long_op()),
-                FRETURN => return MethodResult::Float(frame.pop_float_op()),
-                DRETURN => return MethodResult::Double(frame.pop_double_op()),
-                ARETURN => return MethodResult::Reference(frame.pop_ref_op(heap)),
-                RETURN => return MethodResult::Void,
+                JVM_OPCODE_IRETURN => return MethodResult::Integer(frame.pop_int_op()),
+                JVM_OPCODE_LRETURN => return MethodResult::Long(frame.pop_long_op()),
+                JVM_OPCODE_FRETURN => return MethodResult::Float(frame.pop_float_op()),
+                JVM_OPCODE_DRETURN => return MethodResult::Double(frame.pop_double_op()),
+                JVM_OPCODE_ARETURN => return MethodResult::Reference(frame.pop_ref_op(heap)),
+                JVM_OPCODE_RETURN => return MethodResult::Void,
                 // TODO: GETSTATIC, PUTSTATIC, GETFIELD, PUTFIELD, INVOKEVIRTUAL, INVOKESPECIAL,
                 //  INVOKESTATIC, INVOKEINTERFACE, INVOKEDYNAMIC
-                NEW => new_ref(heap, class, &mut frame, &mut parser),
-                NEWARRAY => new_type_array(heap, &mut frame, &mut parser),
-                ANEWARRAY => new_ref_array(heap, class, &mut frame, &mut parser),
-                ARRAYLENGTH => array_length(heap, &mut frame),
-                ATHROW => {
+                JVM_OPCODE_NEW => new_ref(heap, class, &mut frame, &mut parser),
+                JVM_OPCODE_NEWARRAY => new_type_array(heap, &mut frame, &mut parser),
+                JVM_OPCODE_ANEWARRAY => new_ref_array(heap, class, &mut frame, &mut parser),
+                JVM_OPCODE_ARRAYLENGTH => array_length(heap, &mut frame),
+                JVM_OPCODE_ATHROW => {
                     if let Some(result) = throw(heap, code, &mut frame, &mut parser) {
                         return result;
                     }
-                },
-                CHECKCAST => check_cast(heap, class, &mut frame, &mut parser),
-                INSTANCEOF => instanceof(heap, class, &mut frame, &mut parser),
+                }
+                JVM_OPCODE_CHECKCAST => check_cast(heap, class, &mut frame, &mut parser),
+                JVM_OPCODE_INSTANCEOF => instanceof(heap, class, &mut frame, &mut parser),
                 // TODO: MONITORENTER, MONITOREXIT, WIDE, MULTIANEWARRAY
-                IFNULL => branch_null(heap, &mut frame, &mut parser, true),
-                IFNONNULL => branch_null(heap, &mut frame, &mut parser, false),
-                GOTO_W => branch_seek_wide(&mut parser),
-                JSR_W => jump_subroutine(&mut frame, &mut parser, true),
+                JVM_OPCODE_IFNULL => branch_null(heap, &mut frame, &mut parser, true),
+                JVM_OPCODE_IFNONNULL => branch_null(heap, &mut frame, &mut parser, false),
+                JVM_OPCODE_GOTO_W => branch_seek_wide(&mut parser),
+                JVM_OPCODE_JSR_W => jump_subroutine(&mut frame, &mut parser, true),
                 _ => panic!("Unrecognised bytecode {}!", op)
             }
         }
@@ -237,8 +246,6 @@ pub enum MethodResult {
     Exception
 }
 
-pub const NUMBER_OF_JAVA_OP_CODES: u8 = 203;
-
 macro_rules! generate_load_store_index {
     ($name:ident, $prefix:ident) => {
         paste! {
@@ -253,8 +260,8 @@ macro_rules! generate_load_store_index {
     };
     ($prefix:ident) => {
         paste! {
-            generate_load_store_index!([<$prefix load>], [<$prefix:upper LOAD>]);
-            generate_load_store_index!([<$prefix store>], [<$prefix:upper STORE>]);
+            generate_load_store_index!([<$prefix load>], [<JVM_OPCODE_ $prefix:upper LOAD>]);
+            generate_load_store_index!([<$prefix store>], [<JVM_OPCODE_ $prefix:upper STORE>]);
         }
     }
 }

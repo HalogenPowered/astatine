@@ -70,13 +70,11 @@ pub fn accessible(attribute: TokenStream, input: TokenStream) -> TokenStream {
         .collect::<Vec<TokenStream2>>();
     TokenStream::from(quote! {
         #input
-        impl crate::types::access_flags::Accessible for #name {
-            fn flags(&self) -> u16 {
+        impl #name {
+            pub fn access_flags(&self) -> AccessFlags {
                 self.access_flags
             }
-        }
 
-        impl #name {
             #(#functions)*
         }
     })
@@ -84,10 +82,9 @@ pub fn accessible(attribute: TokenStream, input: TokenStream) -> TokenStream {
 
 fn gen_accessible_function(name: &str) -> TokenStream2 {
     let function_name = format_ident!("is_{}", name);
-    let acc_name = format_ident!("ACC_{}", name.to_uppercase());
     quote! {
         pub fn #function_name(&self) -> bool {
-            self.flags() & #acc_name != 0
+            self.access_flags().#function_name()
         }
     }
 }

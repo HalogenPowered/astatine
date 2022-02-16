@@ -14,6 +14,7 @@
  * Street, Fifth Floor, Boston, MA 02110-1301, USA.
  */
 
+use std::fmt::{Display, Formatter};
 use internship::IStr;
 use nom::IResult;
 use nom::branch::alt;
@@ -53,6 +54,15 @@ impl From<FieldType> for FieldDescriptor {
     }
 }
 
+impl Display for FieldDescriptor {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FieldDescriptor")
+            .field("base", &self.base)
+            .field("array_dimensions", &self.array_dimensions)
+            .finish()
+    }
+}
+
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub struct MethodDescriptor {
     parameters: Vec<FieldDescriptor>,
@@ -74,6 +84,15 @@ impl MethodDescriptor {
 
     pub fn return_type(&self) -> Option<&FieldDescriptor> {
         self.return_type.as_ref()
+    }
+}
+
+impl Display for MethodDescriptor {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MethodDescriptor")
+            .field("parameters", &self.parameters)
+            .field("return_type", &self.return_type)
+            .finish()
     }
 }
 
@@ -140,7 +159,7 @@ fn parse_type(input: &str) -> IResult<&str, FieldType> {
 fn parse_field(input: &str) -> IResult<&str, FieldDescriptor> {
     map(
         pair(fold_many_m_n(0, 255, char('['), || 0u8, |value, _| value + 1), parse_type),
-        |value: (u8, FieldType)| FieldDescriptor { base: value.1, array_dimensions: value.0 }
+        |value: (u8, FieldType)| FieldDescriptor::new(value.1, value.0)
     )(input)
 }
 
@@ -165,41 +184,35 @@ mod tests {
 
     #[test]
     fn fields() {
-        assert_eq!(FieldDescriptor::parse("[[[Lfoo bar net;"), Some(FieldDescriptor {
-            base: FieldType::Reference(IStr::new("foo bar net")), array_dimensions: 3
-        }));
+        assert_eq!(
+            FieldDescriptor::parse("[[[Lfoo bar net;"),
+            Some(FieldDescriptor::new(FieldType::Reference(IStr::new("foo bar net")), 3))
+        );
     }
 
     #[test]
     fn methods() {
-        assert_eq!(MethodDescriptor::parse("([B[[LFoo;I)[LNetwork;"), Some(MethodDescriptor {
-            parameters: vec![FieldDescriptor {
-                base: FieldType::Byte,
-                array_dimensions: 1
-            }, FieldDescriptor {
-                base: FieldType::Reference(IStr::new("Foo")),
-                array_dimensions: 2
-            }, FieldDescriptor {
-                base: FieldType::Int,
-                array_dimensions: 0
-            }],
-            return_type: Some(FieldDescriptor {
-                base: FieldType::Reference(IStr::new("Network")),
-                array_dimensions: 1
-            })
-        }));
-        assert_eq!(MethodDescriptor::parse("([B[[LFoo;I)V"), Some(MethodDescriptor {
-            parameters: vec![FieldDescriptor {
-                base: FieldType::Byte,
-                array_dimensions: 1
-            }, FieldDescriptor {
-                base: FieldType::Reference(IStr::new("Foo")),
-                array_dimensions: 2
-            }, FieldDescriptor {
-                base: FieldType::Int,
-                array_dimensions: 0
-            }],
-            return_type: None
-        }))
+        assert_eq!(
+            MethodDescriptor::parse("([B[[LFoo;I)[LNetwork;"),
+            Some(MethodDescriptor::new(
+                vec![
+                    FieldDescriptor::new(FieldType::Byte, 1),
+                    FieldDescriptor::new(FieldType::Reference(IStr::new("Foo")), 2),
+                    FieldDescriptor::new(FieldType::Int, 0)
+                ],
+                Some(FieldDescriptor::new(FieldType::Reference(IStr::new("Network")), 1))
+            ))
+        );
+        assert_eq!(
+            MethodDescriptor::parse("([B[[LFoo;I)V"),
+            Some(MethodDescriptor::new(
+                vec![
+                    FieldDescriptor::new(FieldType::Byte, 1),
+                    FieldDescriptor::new(FieldType::Reference(IStr::new("Foo")), 2),
+                    FieldDescriptor::new(FieldType::Int, 0)
+                ],
+                None
+            ))
+        );
     }
 }

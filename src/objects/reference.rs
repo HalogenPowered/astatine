@@ -15,15 +15,15 @@
  */
 
 use std::sync::Arc;
-use super::object::HeapObject;
+use crate::utils::IdentEq;
 
 #[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Clone)]
-pub enum Reference<T: HeapObject> {
+pub enum Reference<T> {
     Value(Arc<T>),
     Null
 }
 
-impl<T: HeapObject> Reference<T> {
+impl<T> Reference<T> {
     pub fn expect(self, message: &str) -> Arc<T> {
         match self {
             Reference::Value(value) => value,
@@ -51,13 +51,13 @@ impl<T: HeapObject> Reference<T> {
             return true;
         }
         if self.is_not_null() && other.is_not_null() {
-            return self.unwrap().equals(&other.unwrap())
+            return self.unwrap().ident_eq(&other.unwrap())
         }
         return false;
     }
 }
 
-impl<T: HeapObject> From<Option<Arc<T>>> for Reference<T> {
+impl<T> From<Option<Arc<T>>> for Reference<T> {
     fn from(option: Option<Arc<T>>) -> Self {
         match option {
             Some(value) => Reference::Value(value),

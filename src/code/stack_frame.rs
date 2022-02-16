@@ -205,7 +205,8 @@ impl StackFrame {
             .expect(&format!("Could not pop element at offset {} from end of stack!", offset))
     }
 
-    fn get_ref<T: HeapObject>(offset: u32, mapper: impl Fn(usize) -> Reference<T>) -> Reference<T> {
+    #[inline]
+    fn get_ref<T>(offset: u32, mapper: impl Fn(usize) -> Reference<T>) -> Reference<T> {
         let ref_index = (offset + 1) as usize;
         match offset {
             0 => Reference::Null,

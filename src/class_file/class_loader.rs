@@ -32,10 +32,7 @@ impl ClassLoader {
     }
 
     pub fn get_class(&self, name: &str) -> Option<Arc<Class>> {
-        self.classes.lock()
-            .unwrap()
-            .get(name)
-            .map(|value| Arc::clone(value))
+        self.classes.lock().unwrap().get(name).map(Arc::clone)
     }
 
     pub fn load_class(self: Arc<ClassLoader>, name: &str) -> Arc<Class> {

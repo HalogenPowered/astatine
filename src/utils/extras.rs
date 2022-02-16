@@ -25,7 +25,8 @@ pub trait BufferExtras: Buf {
         self.get_generic_u16_array(|buf| buf.get_u16())
     }
 
-    fn get_generic_array<T, F>(&mut self, length: usize, element_reader: F) -> Vec<T> where F : Fn(&mut Self) -> T {
+    #[inline]
+    fn get_generic_array<T>(&mut self, length: usize, element_reader: impl Fn(&mut Self) -> T) -> Vec<T> {
         let mut result = Vec::with_capacity(length);
         for _ in 0..length {
             result.push(element_reader(self));
@@ -33,11 +34,22 @@ pub trait BufferExtras: Buf {
         result
     }
 
-    fn get_generic_u16_array<T, F>(&mut self, element_reader: F) -> Vec<T> where F : Fn(&mut Self) -> T {
+    #[inline]
+    fn get_generic_u16_array<T>(&mut self, element_reader: impl Fn(&mut Self) -> T) -> Vec<T> {
         let length = self.get_u16() as usize;
         self.get_generic_array(length, element_reader)
     }
 }
 
 impl BufferExtras for Bytes {
+}
+
+pub trait IdentEq {
+    #[inline]
+    fn ident_eq(&self, other: &Self) -> bool {
+        self as *const Self == other as *const Self
+    }
+}
+
+impl<T> IdentEq for T {
 }

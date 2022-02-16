@@ -14,15 +14,15 @@
  * Street, Fifth Floor, Boston, MA 02110-1301, USA.
  */
 
+use std::ops::Deref;
 use paste::paste;
 use std::sync::Arc;
 use crate::class_file::code::CodeBlock;
 use crate::code::StackFrame;
+use crate::constants::*;
 use crate::objects::*;
 use crate::types::Class;
-use crate::utils::vm_types::ArrayType;
 use super::{CodeParser, MethodResult};
-use super::constants::*;
 
 macro_rules! load_store_array_primitive {
     ($name:ident, $instruction_prefix:literal, $expected:literal, $array_type:pat) => {
@@ -31,7 +31,8 @@ macro_rules! load_store_array_primitive {
                 array_primitive(
                     heap,
                     frame,
-                    &format!("{}ALOAD", $instruction_prefix), $expected,
+                    &format!("{}ALOAD", $instruction_prefix),
+                    $expected,
                     |array_type| matches!(array_type, $array_type),
                     |frame, array, index| frame.[<push_ $name _op>](array.[<get_ $name>](index))
                 );
@@ -41,7 +42,8 @@ macro_rules! load_store_array_primitive {
                 array_primitive(
                     heap,
                     frame,
-                    &format!("{}ASTORE", $instruction_prefix), $expected,
+                    &format!("{}ASTORE", $instruction_prefix),
+                    $expected,
                     |array_type| matches!(array_type, $array_type),
                     |frame, array, index| array.[<set_ $name>](index, frame.[<pop_ $name _op>]())
                 );
@@ -51,31 +53,26 @@ macro_rules! load_store_array_primitive {
 }
 
 pub(super) fn load_array_ref(heap: &HeapSpace, frame: &mut StackFrame) {
-    let array_ref = frame.pop_ref_array_op(heap)
-        .expect("Invalid array reference on operand stack!");
+    let array_ref = frame.pop_ref_array_op(heap).expect("Invalid array reference on operand stack!");
     let index = frame.pop_int_op();
     let value = array_ref.get(index as usize).expect("Invalid array index on operand stack!");
     frame.push_ref_op(value.offset() as u32);
 }
 
 pub(super) fn store_array_ref(heap: &HeapSpace, frame: &mut StackFrame) {
-    let array_ref = frame.pop_ref_array_op(heap)
-        .expect("Invalid array reference on operand stack!");
+    let array_ref = frame.pop_ref_array_op(heap).expect("Invalid array reference on operand stack!");
     let index = frame.pop_int_op();
-    let value = frame.pop_ref_op(heap)
-        .expect("Invalid array value on operand stack!");
+    let value = frame.pop_ref_op(heap).expect("Invalid array value on operand stack!");
     array_ref.set(index as usize, value);
 }
 
 pub(super) fn load_ref(heap: &HeapSpace, frame: &mut StackFrame, index: u8) {
-    let reference = frame.get_local_ref(index as usize, heap)
-        .expect(&format!("Invalid reference index {}!", index));
+    let reference = frame.get_local_ref(index as usize, heap).expect("Invalid local reference index!");
     frame.push_ref_op(reference.offset() as u32);
 }
 
 pub(super) fn array_length(heap: &HeapSpace, frame: &mut StackFrame) {
-    let array_ref = frame.pop_ref_array_op(heap)
-        .expect("Invalid array reference on operand stack!");
+    let array_ref = frame.pop_ref_array_op(heap).expect("Invalid array reference on operand stack!");
     frame.push_int_op(array_ref.len() as i32);
 }
 
@@ -93,8 +90,7 @@ pub(super) fn throw(
 ) -> Option<MethodResult> {
     let exception = frame.pop_ref_op(heap)
         .expect("Invalid exception on operand stack! Reference cannot be null!");
-    let handler = code.exception_handlers().get_handler(exception.class());
-    match handler {
+    match code.exception_handlers().get_handler(exception.class()) {
         Some(value) => {
             parser.seek(value.start_pc() as usize);
             None
@@ -105,32 +101,36 @@ pub(super) fn throw(
 
 pub(super) fn load_array_byte(heap: &HeapSpace, frame: &mut StackFrame) {
     common_array_primitive(heap, frame, |frame, array, array_type, index| {
-        match array_type {
-            ArrayType::Byte => frame.push_byte_op(array.get_byte(index)),
-            ArrayType::Boolean => frame.push_bool_op(array.get_bool(index)),
-            _ => panic!("Invalid type of array for BASTORE! Expected array to be of type \
-                byte or boolean, was {}!", array_type)
+        if array_type == JVM_T_BYTE {
+            frame.push_byte_op(array.get_byte(index));
         }
+        if array_type == JVM_T_BOOLEAN {
+            frame.push_bool_op(array.get_bool(index));
+        }
+        panic!("Invalid type of array for BASTORE! Expected array to be of type byte or boolean, \
+            was {:?}!", array_type);
     })
 }
 
 pub(super) fn store_array_byte(heap: &HeapSpace, frame: &mut StackFrame) {
     common_array_primitive(heap, frame, |frame, array, array_type, index| {
-        match array_type {
-            ArrayType::Byte => array.set_byte(index, frame.pop_byte_op()),
-            ArrayType::Boolean => array.set_bool(index, frame.pop_bool_op()),
-            _ => panic!("Invalid type of array for BASTORE! Expected array to be of type \
-                byte or boolean, was {}!", array_type)
+        if array_type == JVM_T_BYTE {
+            array.set_byte(index, frame.pop_byte_op());
         }
+        if array_type == JVM_T_BOOLEAN {
+            array.set_bool(index, frame.pop_bool_op());
+        }
+        panic!("Invalid type of array for BASTORE! Expected array to be of type byte or boolean, \
+            was {:?}!", array_type);
     })
 }
 
-load_store_array_primitive!(char, "C", "char", ArrayType::Char);
-load_store_array_primitive!(double, "D", "double", ArrayType::Double);
-load_store_array_primitive!(float, "F", "float", ArrayType::Float);
-load_store_array_primitive!(int, "I", "int", ArrayType::Int);
-load_store_array_primitive!(long, "L", "long", ArrayType::Long);
-load_store_array_primitive!(short, "S", "short", ArrayType::Short);
+load_store_array_primitive!(char, "C", "char", JVM_T_CHAR);
+load_store_array_primitive!(double, "D", "double", JVM_T_DOUBLE);
+load_store_array_primitive!(float, "F", "float", JVM_T_FLOAT);
+load_store_array_primitive!(int, "I", "int", JVM_T_INT);
+load_store_array_primitive!(long, "L", "long", JVM_T_LONG);
+load_store_array_primitive!(short, "S", "short", JVM_T_SHORT);
 
 pub(super) fn check_cast(
     heap: &HeapSpace,
@@ -146,10 +146,9 @@ pub(super) fn check_cast(
 
     let class_index = ((parser.next() as u16) << 8) | (parser.next() as u16);
     let class = class.constant_pool().get_class(class_index as usize)
-        .expect(&format!("Invalid cast check! Expected index {} to be in constant \
-            pool!", class_index));
-    assert!(reference.class().is_subclass(Arc::clone(&class)), "Cannot cast {} to {}!",
-        reference.class().name(), Arc::clone(&class).name());
+        .expect(&format!("Invalid cast check! Expected index {} to be in constant pool!", class_index));
+    assert!(reference.class().is_subclass(&class), "Cannot cast {} to {}!",
+        reference.class().name(), class.name());
     frame.push_ref_op(reference.offset() as u32);
 }
 
@@ -157,7 +156,7 @@ pub(super) fn check_cast(
 fn common_array_primitive(
     heap: &HeapSpace,
     frame: &mut StackFrame,
-    mapper: impl Fn(&mut StackFrame, Arc<TypeArrayObject>, ArrayType, usize)
+    mapper: impl Fn(&mut StackFrame, Arc<TypeArrayObject>, u8, usize)
 ) {
     let array_ref = frame.pop_type_array_op(heap)
         .expect("Invalid array reference on operand stack! Reference cannot be null!");
@@ -172,7 +171,7 @@ fn array_primitive(
     frame: &mut StackFrame,
     instruction: &str,
     expected_type: &str,
-    checker: impl Fn(ArrayType) -> bool,
+    checker: impl Fn(u8) -> bool,
     mapper: impl Fn(&mut StackFrame, Arc<TypeArrayObject>, usize)
 ) {
     common_array_primitive(heap, frame, |frame, array, array_type, index| {
@@ -192,8 +191,7 @@ pub(super) fn pop(frame: &mut StackFrame, double: bool) {
 }
 
 pub(super) fn dup(frame: &mut StackFrame) {
-    let value = frame.get_op(0);
-    frame.push_op(value);
+    frame.push_op(frame.get_op(0));
 }
 
 pub(super) fn dup_x1(frame: &mut StackFrame) {
@@ -255,12 +253,12 @@ pub(super) fn swap(frame: &mut StackFrame) {
 
 pub(super) fn branch<'a>(frame: &mut StackFrame, parser: &mut CodeParser<'a>, op: u8) {
     let value = frame.pop_int_op();
-    let success = (op == IFEQ && value == 0) ||
-        (op == IFNE && value != 0) ||
-        (op == IFLT && value < 0) ||
-        (op == IFLE && value <= 0) ||
-        (op == IFGT && value > 0) ||
-        (op == IFGE && value >= 0);
+    let success = (op == JVM_OPCODE_IFEQ && value == 0) ||
+        (op == JVM_OPCODE_IFNE && value != 0) ||
+        (op == JVM_OPCODE_IFLT && value < 0) ||
+        (op == JVM_OPCODE_IFLE && value <= 0) ||
+        (op == JVM_OPCODE_IFGT && value > 0) ||
+        (op == JVM_OPCODE_IFGE && value >= 0);
     if success {
         branch_seek(parser);
     }
@@ -292,11 +290,9 @@ pub(super) fn instanceof(
         return;
     }
     let reference = reference.unwrap();
-
     let class = class.constant_pool().get_class(index as usize)
-        .expect(&format!("Invalid class for instanceof check! Expected index {} to be in \
-            constant pool!", index));
-    let result = if reference.class().is_subclass(class) { 1 } else { 0 };
+        .expect("Invalid class for instanceof check! Expected index to be in constant pool!");
+    let result = if reference.class().is_subclass(class.deref()) { 1 } else { 0 };
     frame.push_int_op(result);
 }
 
@@ -304,7 +300,7 @@ pub(super) fn ref_branch(heap: &HeapSpace, frame: &mut StackFrame, parser: &mut 
     let first_ref = frame.pop_ref_op(heap);
     let second_ref = frame.pop_ref_op(heap);
     let ref_compare = first_ref.equals(second_ref);
-    if (op == IF_ACMPEQ && ref_compare) || (op == IF_ACMPNE && !ref_compare) {
+    if (op == JVM_OPCODE_IF_ACMPEQ && ref_compare) || (op == JVM_OPCODE_IF_ACMPNE && !ref_compare) {
         branch_seek(parser);
     }
 }
@@ -312,12 +308,12 @@ pub(super) fn ref_branch(heap: &HeapSpace, frame: &mut StackFrame, parser: &mut 
 pub(super) fn int_branch(frame: &mut StackFrame, parser: &mut CodeParser, op: u8) {
     let first = frame.pop_int_op();
     let second = frame.pop_int_op();
-    let success = (op  == IF_ICMPEQ && first == second) ||
-        (op == IF_ICMPNE && first != second) ||
-        (op == IF_ICMPLT && first < second) ||
-        (op == IF_ICMPLE && first <= second) ||
-        (op == IF_ICMPGT && first > second) ||
-        (op == IF_ICMPGE && first >= second);
+    let success = (op == JVM_OPCODE_IF_ICMPEQ && first == second) ||
+        (op == JVM_OPCODE_IF_ICMPNE && first != second) ||
+        (op == JVM_OPCODE_IF_ICMPLT && first < second) ||
+        (op == JVM_OPCODE_IF_ICMPLE && first <= second) ||
+        (op == JVM_OPCODE_IF_ICMPGT && first > second) ||
+        (op == JVM_OPCODE_IF_ICMPGE && first >= second);
     if success {
         branch_seek(parser);
     }
@@ -390,10 +386,9 @@ pub(super) fn new_ref_array(
 }
 
 pub(super) fn new_type_array(heap: &HeapSpace, frame: &mut StackFrame, parser: &mut CodeParser) {
-    let array_type = ArrayType::from(parser.next()).expect("Invalid array type!");
     let count = frame.pop_int_op();
     let offset = heap.len(); // Index of next element will be the current length
-    let array = TypeArrayObject::new(offset, array_type, count as usize);
+    let array = TypeArrayObject::new(offset, parser.next(), count as usize);
     heap.push_type_array(Arc::new(array));
     frame.push_ref_op(offset as u32);
 }

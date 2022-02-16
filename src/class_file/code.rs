@@ -20,10 +20,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use astatine_macros::{FieldDescribable, Nameable};
 use crate::code::StackFrame;
+use crate::constants::*;
 use crate::types::{Class, ConstantPool};
-use crate::utils::BufferExtras;
+use crate::utils::{BufferExtras, IdentEq};
 use crate::utils::descriptors::FieldDescriptor;
-use super::attribute_tags::*;
 use super::ClassLoader;
 use super::verification::*;
 
@@ -42,53 +42,24 @@ pub struct CodeBlock {
 const MAX_CODE_BYTES: usize = 65535;
 
 impl CodeBlock {
-    pub(crate) fn parse(
-        loader: Arc<ClassLoader>,
-        class_file_name: &str,
-        pool: &ConstantPool,
-        buf: &mut Bytes
-    ) -> Self {
+    pub(crate) fn parse(loader: Arc<ClassLoader>, pool: &ConstantPool, buf: &mut Bytes) -> Self {
         let max_stack = buf.get_u16();
         let max_locals = buf.get_u16();
         let code_length = buf.get_u32() as usize;
-        assert!(code_length > 0 && code_length <= MAX_CODE_BYTES, "Invalid code attribute in \
-            class file {}! Code length must be > 0 and < {}!", class_file_name, MAX_CODE_BYTES);
+        assert!(code_length > 0 && code_length <= MAX_CODE_BYTES, "Invalid code attribute! Code \
+            length must be > 0 and < {}!", MAX_CODE_BYTES);
         let code = buf.get_u8_array(code_length);
-        let exception_handlers = ExceptionHandlerTable::parse(loader, class_file_name, pool, buf);
-        let attribute_count = buf.get_u16();
-        let (line_number_table, local_variable_table, local_variable_type_table, stack_map_table) =
-            parse_attributes(class_file_name, pool, buf, attribute_count);
-        CodeBlock::new(
-            max_stack,
-            max_locals,
-            code,
-            exception_handlers,
-            line_number_table,
-            local_variable_table,
-            local_variable_type_table,
-            stack_map_table
-        )
-    }
-
-    pub const fn new(
-        max_stack: u16,
-        max_locals: u16,
-        code: Vec<u8>,
-        exception_handlers: ExceptionHandlerTable,
-        line_numbers: Option<HashMap<u16, u16>>,
-        local_variables: Option<LocalVariableTable>,
-        local_variable_types: Option<LocalVariableTable>,
-        stack_map_table: Option<StackMapTable>
-    ) -> Self {
+        let exception_handlers = ExceptionHandlerTable::parse(loader, pool, buf);
+        let attributes = parse_attributes(pool, buf);
         CodeBlock {
             max_stack,
             max_locals,
             code,
             exception_handlers,
-            line_numbers,
-            local_variables,
-            local_variable_types,
-            stack_map_table
+            line_numbers: attributes.0,
+            local_variables: attributes.1,
+            local_variable_types: attributes.2,
+            stack_map_table: attributes.3
         }
     }
 
@@ -135,21 +106,12 @@ pub struct ExceptionHandlerTable {
 }
 
 impl ExceptionHandlerTable {
-    pub(crate) fn parse(
-        loader: Arc<ClassLoader>,
-        class_file_name: &str,
-        pool: &ConstantPool,
-        buf: &mut Bytes
-    ) -> Self {
+    pub(crate) fn parse(loader: Arc<ClassLoader>, pool: &ConstantPool, buf: &mut Bytes) -> Self {
         let handler_count = buf.get_u16();
         let mut handlers = Vec::with_capacity(handler_count as usize);
         for _ in 0..handler_count {
-            handlers.push(ExceptionHandlerBlock::parse(Arc::clone(&loader), class_file_name, pool, buf))
+            handlers.push(ExceptionHandlerBlock::parse(Arc::clone(&loader), pool, buf))
         }
-        ExceptionHandlerTable::new(handlers)
-    }
-
-    pub const fn new(handlers: Vec<ExceptionHandlerBlock>) -> Self {
         ExceptionHandlerTable { handlers }
     }
 
@@ -158,12 +120,7 @@ impl ExceptionHandlerTable {
     }
 
     pub fn get_handler(&self, exception: &Class) -> Option<&ExceptionHandlerBlock> {
-        for element in &self.handlers {
-            if element.catch_type() as *const Class == exception as *const Class {
-                return Some(element);
-            }
-        }
-        None
+        self.handlers.iter().find(|element| element.catch_type().ident_eq(exception))
     }
 }
 
@@ -176,23 +133,11 @@ pub struct ExceptionHandlerBlock {
 }
 
 impl ExceptionHandlerBlock {
-    pub(crate) fn parse(
-        loader: Arc<ClassLoader>,
-        class_file_name: &str,
-        pool: &ConstantPool,
-        buf: &mut Bytes
-    ) -> Self {
+    pub(crate) fn parse(loader: Arc<ClassLoader>, pool: &ConstantPool, buf: &mut Bytes) -> Self {
         let start_pc = buf.get_u16();
         let end_pc = buf.get_u16();
         let handler_pc = buf.get_u16();
-        let catch_type_index = buf.get_u16();
-        let catch_type = pool.get_class_no_holder(catch_type_index as usize, loader)
-            .expect(&format!("Invalid catch type for class file {}! Expected index {} to be in \
-                constant pool!", class_file_name, catch_type_index));
-        ExceptionHandlerBlock { start_pc, end_pc, handler_pc, catch_type }
-    }
-
-    pub const fn new(start_pc: u16, end_pc: u16, handler_pc: u16, catch_type: Arc<Class>) -> Self {
+        let catch_type = pool.get_class_no_holder(buf.get_u16() as usize, loader).unwrap();
         ExceptionHandlerBlock { start_pc, end_pc, handler_pc, catch_type }
     }
 
@@ -219,18 +164,9 @@ pub struct LocalVariableTable {
 }
 
 impl LocalVariableTable {
-    pub(crate) fn parse(class_file_name: &str, pool: &ConstantPool, buf: &mut Bytes) -> Self {
-        LocalVariableTable::new(buf.get_generic_u16_array(|buf| {
-            LocalVariable::parse(class_file_name, pool, buf)
-        }))
-    }
-
-    pub const fn new(variables: Vec<LocalVariable>) -> Self {
+    pub(crate) fn parse(pool: &ConstantPool, buf: &mut Bytes) -> Self {
+        let variables = buf.get_generic_u16_array(|buf| LocalVariable::parse(pool, buf));
         LocalVariableTable { variables }
-    }
-
-    pub fn variables(&self) -> &[LocalVariable] {
-        self.variables.as_slice()
     }
 
     pub fn get(&self, index: usize) -> Option<&LocalVariable> {
@@ -248,27 +184,17 @@ pub struct LocalVariable {
 }
 
 impl LocalVariable {
-    pub(crate) fn parse(class_file_name: &str, pool: &ConstantPool, buf: &mut Bytes) -> Self {
+    pub(crate) fn parse(pool: &ConstantPool, buf: &mut Bytes) -> Self {
         let start_pc = buf.get_u16();
         let length = buf.get_u16();
-
-        let name_index = buf.get_u16();
-        let name = pool.get_utf8(name_index as usize)
-            .expect(&format!("Invalid local variable in table for method in class file {}! \
-                Expected name index {} to be in constant pool!", class_file_name, name_index));
-
-        let descriptor_index = buf.get_u16();
-        let descriptor = pool.get_utf8(descriptor_index as usize)
+        let name = pool.get_utf8(buf.get_u16() as usize)
+            .expect(&format!("Invalid local variable in table for method! Expected name index to be \
+                in constant pool!"));
+        let descriptor = pool.get_utf8(buf.get_u16() as usize)
             .and_then(|value| FieldDescriptor::parse(value.as_str()))
-            .expect(&format!("Invalid local variable in table for method in class file {}! Could \
-                not parse field descriptor!", class_file_name));
-
+            .unwrap();
         let index = buf.get_u16();
         LocalVariable { name, descriptor, start_pc, length, index }
-    }
-
-    pub fn new(name: &str, descriptor: FieldDescriptor, start_pc: u16, length: u16, index: u16) -> Self {
-        LocalVariable { name: IStr::new(name), descriptor, start_pc, length, index }
     }
 
     pub fn start_pc(&self) -> u16 {
@@ -284,26 +210,22 @@ impl LocalVariable {
     }
 }
 
-fn parse_attributes(
-    class_file_name: &str,
-    pool: &ConstantPool,
-    buf: &mut Bytes,
-    mut attribute_count: u16
-) -> (Option<HashMap<u16, u16>>, Option<LocalVariableTable>, Option<LocalVariableTable>, Option<StackMapTable>) {
+type CodeAttributes = (Option<HashMap<u16, u16>>, Option<LocalVariableTable>,
+                       Option<LocalVariableTable>, Option<StackMapTable>);
+
+fn parse_attributes(pool: &ConstantPool, buf: &mut Bytes) -> CodeAttributes {
     let mut line_number_table = None;
     let mut local_variable_table = None;
     let mut local_variable_type_table = None;
     let mut stack_map_table = None;
 
+    let mut attribute_count = buf.get_u16();
     while attribute_count > 0 {
-        assert!(buf.len() > 6, "Truncated code attributes for method in class file {}!", class_file_name);
-        let attribute_name_index = buf.get_u16();
+        assert!(buf.len() > 6, "Truncated code attributes!");
+        let attribute_name = pool.get_utf8(buf.get_u16() as usize).unwrap();
         let attribute_length = buf.get_u32();
-        let attribute_name = pool.get_utf8(attribute_name_index as usize)
-            .expect(&format!("Invalid code attribute index {} in class file {}! Expected name \
-                to be in constant pool!", attribute_name_index, class_file_name));
 
-        if attribute_name == TAG_LINE_NUMBER_TABLE {
+        if attribute_name == JVM_ATTRIBUTE_LINE_NUMBER_TABLE {
             let table_length = buf.get_u16();
             let mut table = HashMap::with_capacity(table_length as usize);
             for _ in 0..table_length {
@@ -312,11 +234,11 @@ fn parse_attributes(
                 table.insert(start_pc, line_number);
             }
             line_number_table = Some(table)
-        } else if attribute_name == TAG_LOCAL_VARIABLE_TABLE {
-            local_variable_table = Some(LocalVariableTable::parse(class_file_name, pool, buf));
-        } else if attribute_name == TAG_LOCAL_VARIABLE_TYPE_TABLE {
-            local_variable_type_table = Some(LocalVariableTable::parse(class_file_name, pool, buf));
-        } else if attribute_name == TAG_STACK_MAP_TABLE {
+        } else if attribute_name == JVM_ATTRIBUTE_LOCAL_VARIABLE_TABLE {
+            local_variable_table = Some(LocalVariableTable::parse(pool, buf));
+        } else if attribute_name == JVM_ATTRIBUTE_LOCAL_VARIABLE_TYPE_TABLE {
+            local_variable_type_table = Some(LocalVariableTable::parse(pool, buf));
+        } else if attribute_name == JVM_ATTRIBUTE_STACK_MAP_TABLE {
             stack_map_table = Some(StackMapTable::parse(buf));
         } else {
             // Skip past any attribute that we don't recognise

@@ -14,9 +14,6 @@
  * Street, Fifth Floor, Boston, MA 02110-1301, USA.
  */
 
-pub const CLASS_INITIALIZER_METHOD_NAME: &str = "<clinit>";
-pub const OBJECT_INITIALIZER_METHOD_NAME: &str = "<init>";
-
 pub const JAVA_LANG_OBJECT_NAME: &str = "java/lang/Object";
 pub const JAVA_LANG_CLASS_NAME: &str = "java/lang/Class";
 pub const JAVA_LANG_STRING_NAME: &str = "java/lang/String";

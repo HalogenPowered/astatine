@@ -102,10 +102,6 @@ impl ConstantPool {
         }
     }
 
-    pub fn holder(&self) -> Arc<Class> {
-        Arc::clone(&self.holder)
-    }
-
     pub(crate) fn set_holder(&self, class: Arc<Class>) {
         self.holder.init(class)
     }
@@ -147,8 +143,7 @@ impl ConstantPool {
             let class = self.holder.loader().load_class(class_name.as_str());
             Some(ResolvedPoolConstant::Class(class))
         };
-        let converter = |value: &ResolvedPoolConstant| value.as_class()
-            .map(|value| Arc::clone(value));
+        let converter = |value: &ResolvedPoolConstant| value.as_class().map(|value| Arc::clone(value));
         self.resolve(index, resolver, converter)
     }
 
@@ -157,8 +152,7 @@ impl ConstantPool {
             let (class_index, nat_index) = self.get_field_ref_indices(index)?;
             Some(ResolvedPoolConstant::FieldRef(parse_field_ref(self, class_index, nat_index)))
         };
-        let converter = |value: &ResolvedPoolConstant| value.as_field_ref()
-            .map(|value| Arc::clone(value));
+        let converter = |value: &ResolvedPoolConstant| value.as_field_ref().map(|value| Arc::clone(value));
         self.resolve(index, resolver, converter)
     }
 
@@ -168,19 +162,17 @@ impl ConstantPool {
             let method_ref = parse_method_ref(self, class_index, nat_index, is_interface);
             Some(ResolvedPoolConstant::MethodRef(method_ref))
         };
-        let converter = |value: &ResolvedPoolConstant| value.as_method_ref()
-            .map(|value| Arc::clone(value));
+        let converter = |value: &ResolvedPoolConstant| value.as_method_ref().map(Arc::clone);
         self.resolve(index, resolver, converter)
     }
 
     pub fn get_method_handle(&self, index: usize) -> Option<Arc<MethodHandle>> {
         let resolver = || {
             let (kind, ref_index) = self.get_unresolved_method_handle(index)?;
-            let handle = MethodHandle::parse(self, kind, ref_index, self.holder.version());
+            let handle = MethodHandle::parse(self, kind, ref_index, self.holder.major_version());
             Some(ResolvedPoolConstant::MethodHandle(Arc::new(handle)))
         };
-        let converter = |value: &ResolvedPoolConstant| value.as_method_handle()
-            .map(|value| Arc::clone(value));
+        let converter = |value: &ResolvedPoolConstant| value.as_method_handle().map(Arc::clone);
         self.resolve(index, resolver, converter)
     }
 
@@ -191,8 +183,7 @@ impl ConstantPool {
                 .and_then(|value| MethodDescriptor::parse(value.as_str()))?;
             Some(ResolvedPoolConstant::MethodType(descriptor))
         };
-        let converter = |value: &ResolvedPoolConstant| value.as_method_type()
-            .map(|value| value.clone());
+        let converter = |value: &ResolvedPoolConstant| value.as_method_type().map(Clone::clone);
         self.resolve(index, resolver, converter)
     }
 
@@ -236,8 +227,7 @@ impl ConstantPool {
             let class = loader.load_class(class_name.as_str());
             Some(ResolvedPoolConstant::Class(class))
         };
-        let converter = |value: &ResolvedPoolConstant| value.as_class()
-            .map(|value| Arc::clone(value));
+        let converter = |value: &ResolvedPoolConstant| value.as_class().map(Arc::clone);
         self.resolve(index, resolver, converter)
     }
 
@@ -358,38 +348,37 @@ enum ResolvedPoolConstant {
     InvokeDynamic(Arc<BootstrapMethod>, IStr, MethodDescriptor)
 }
 
+#[inline]
 fn parse_field_ref(pool: &ConstantPool, class_index: u16, nat_index: u16) -> Arc<FieldRef> {
-    let mapper = |string: IStr| FieldDescriptor::parse(string.as_str());
-    parse_ref(pool, class_index, nat_index, mapper, FieldRef::new)
+    parse_ref(pool, class_index, nat_index, FieldDescriptor::parse, FieldRef::new)
 }
 
+#[inline]
 fn parse_method_ref(
     pool: &ConstantPool,
     class_index: u16,
     nat_index: u16,
     is_interface: bool
 ) -> Arc<MethodRef> {
-    let mapper = |string: IStr| MethodDescriptor::parse(string.as_str());
-    parse_ref(pool, class_index, nat_index, mapper, |class, name, descriptor| {
+    parse_ref(pool, class_index, nat_index, MethodDescriptor::parse, |class, name, descriptor| {
         MethodRef::new(class, name, descriptor, is_interface)
     })
 }
 
+#[inline]
 fn parse_ref<T, D>(
     pool: &ConstantPool,
     class_index: u16,
     nat_index: u16,
-    mapper: impl FnOnce(IStr) -> Option<D>,
+    mapper: impl FnOnce(&str) -> Option<D>,
     constructor: impl FnOnce(Arc<Class>, IStr, D) -> T
 ) -> Arc<T> {
-    let class = pool.get_class(class_index as usize)
-        .expect(&format!("Invalid class index {} for ref tag!", class_index));
+    let class = pool.get_class(class_index as usize).expect("Invalid class for ref tag!");
     let (name_index, descriptor_index) = pool.get_nat_indices(nat_index as usize)
-        .expect(&format!("Invalid name and type index {} for ref tag!", nat_index));
-    let name = pool.get_utf8(name_index as usize)
-        .expect(&format!("Invalid name index {} for ref tag!", name_index));
+        .expect("Invalid name and type for ref tag!");
+    let name = pool.get_utf8(name_index as usize).expect("Invalid name for ref tag!");
     let descriptor = pool.get_utf8(descriptor_index as usize)
-        .and_then(mapper)
-        .expect(&format!("Invalid descriptor index {} for ref tag!", descriptor_index));
+        .and_then(|value| mapper(value.as_str()))
+        .expect(&format!("Invalid descriptor for ref tag!"));
     Arc::new(constructor(class, name, descriptor))
 }

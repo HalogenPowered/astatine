@@ -19,11 +19,13 @@ use std::fmt::{Debug, Display, Formatter};
 use std::ops::Deref;
 use core::fmt::Error as FormatError;
 
+#[repr(transparent)]
 pub struct LateInit<T>(UnsafeCell<Option<T>>);
 
 unsafe impl<T> Sync for LateInit<T> {}
 
 impl<T> LateInit<T> {
+    #[inline]
     pub const fn new() -> Self {
         LateInit(UnsafeCell::new(None))
     }
@@ -33,13 +35,12 @@ impl<T> LateInit<T> {
         unsafe { *self.0.get() = Some(value) }
     }
 
+    #[inline]
     pub fn get(&self) -> &T {
-        match self.option() {
-            Some(ref x) => x,
-            _ => panic!("LateInit.get called before initialization!")
-        }
+        self.option().as_ref().expect("LateInit.get called before initialization!")
     }
 
+    #[inline]
     fn option(&self) -> &Option<T> {
         unsafe { &*self.0.get() }
     }

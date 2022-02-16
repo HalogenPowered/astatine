@@ -14,63 +14,100 @@
  * Street, Fifth Floor, Boston, MA 02110-1301, USA.
  */
 
-// Global
-pub const ACC_SYNTHETIC: u16 = 0x1000;
+use paste::paste;
+use crate::constants::*;
 
-// Classes, fields, methods, inner classes, and method parameters
-pub const ACC_FINAL: u16 = 0x0010;
+// Flags actually found in class files
+pub const JVM_ACC_WRITTEN_FLAGS: u32 = 0x00007FFF;
 
-// Method parameters, modules, module requires, module exports, and module opens
-pub const ACC_MANDATED: u16 = 0x8000;
+// Method flags
+pub const JVM_ACC_HAS_LINE_NUMBER_TABLE: u32 = 0x00100000;
+pub const JVM_ACC_HAS_CHECKED_EXCEPTIONS: u32 = 0x00400000;
+pub const JVM_ACC_CONSTRUCTOR: u32 = 0x10000000;
+pub const JVM_ACC_STATIC_INITIALIZER: u32 = 0x20000000;
 
-// Classes, fields, methods, and inner classes
-pub const ACC_PUBLIC: u16 = 0x0001;
+// Class and Method flags
+pub const JVM_ACC_HAS_LOCAL_VARIABLE_TABLE: u32 = 0x00400000;
 
-// Classes, methods, and inner classes
-pub const ACC_ABSTRACT: u16 = 0x0400;
+// Field flags
+pub const JVM_ACC_FIELD_INTERNAL: u32 = 0x00000400;
+pub const JVM_ACC_FIELD_STABLE: u32 = 0x00000020;
+pub const JVM_ACC_FIELD_HAS_GENERIC_SIGNATURE: u32 = 0x00000800;
 
-// Classes, fields, and inner classes
-pub const ACC_ENUM: u16 = 0x4000;
+pub const JVM_RECOGNIZED_CLASS_MODIFIERS: u32 = JVM_ACC_PUBLIC | JVM_ACC_FINAL | JVM_ACC_SUPER |
+    JVM_ACC_INTERFACE | JVM_ACC_ABSTRACT | JVM_ACC_ANNOTATION | JVM_ACC_ENUM | JVM_ACC_SYNTHETIC;
+pub const JVM_RECOGNIZED_FIELD_MODIFIERS: u32 = JVM_ACC_PUBLIC | JVM_ACC_PRIVATE |
+    JVM_ACC_PROTECTED | JVM_ACC_STATIC | JVM_ACC_FINAL | JVM_ACC_VOLATILE | JVM_ACC_TRANSIENT |
+    JVM_ACC_ENUM | JVM_ACC_SYNTHETIC;
+pub const JVM_RECOGNIZED_METHOD_MODIFIERS: u32 = JVM_ACC_PUBLIC | JVM_ACC_PRIVATE |
+    JVM_ACC_PROTECTED | JVM_ACC_STATIC | JVM_ACC_FINAL | JVM_ACC_SYNCHRONIZED | JVM_ACC_BRIDGE |
+    JVM_ACC_VARARGS | JVM_ACC_NATIVE | JVM_ACC_ABSTRACT | JVM_ACC_STRICT | JVM_ACC_SYNTHETIC;
 
-// Fields, methods, and inner classes
-pub const ACC_PRIVATE: u16 = 0x0002;
-pub const ACC_PROTECTED: u16 = 0x0004;
-pub const ACC_STATIC: u16 = 0x0008;
+#[derive(Debug, Eq, PartialEq, Copy, Clone)]
+#[repr(transparent)]
+pub struct AccessFlags {
+    flags: u32
+}
 
-// Classes and inner classes
-pub const ACC_INTERFACE: u16 = 0x0200;
-pub const ACC_ANNOTATION: u16 = 0x2000;
-
-// Classes only
-pub const ACC_SUPER: u16 = 0x0020;
-pub const ACC_MODULE: u16 = 0x8000;
-
-// Fields only
-pub const ACC_VOLATILE: u16 = 0x0040;
-pub const ACC_TRANSIENT: u16 = 0x0080;
-
-// Methods only
-pub const ACC_SYNCHRONIZED: u16 = 0x0020;
-pub const ACC_BRIDGE: u16 = 0x0040;
-pub const ACC_VARARGS: u16 = 0x0080;
-pub const ACC_NATIVE: u16 = 0x0100;
-pub const ACC_STRICT: u16 = 0x0800;
-
-// Modules only
-pub const ACC_OPEN: u16 = 0x0020;
-
-// Module requires only
-pub const ACC_TRANSITIVE: u16 = 0x0020;
-pub const ACC_STATIC_PHASE: u16 = 0x0040;
-
-pub const ALL_CLASS_MODIFIERS: u16 = ACC_PUBLIC | ACC_FINAL | ACC_SUPER | ACC_INTERFACE |
-    ACC_ABSTRACT | ACC_SYNTHETIC | ACC_ANNOTATION | ACC_ENUM;
-pub const ALL_CLASS_MODIFIERS_J9: u16 = ALL_CLASS_MODIFIERS | ACC_MODULE;
-
-pub trait Accessible {
-    fn flags(&self) -> u16;
-
-    fn is_synthetic(&self) -> bool {
-        self.flags() & ACC_SYNTHETIC != 0
+macro_rules! is_flag {
+    ($name:ident) => {
+        paste! {
+            #[inline]
+            pub fn [<is_ $name>](&self) -> bool {
+                self.flags & [<JVM_ACC_ $name:upper>] != 0
+            }
+        }
     }
 }
+
+impl AccessFlags {
+    pub const fn new(flags: u32) -> Self {
+        AccessFlags { flags }
+    }
+
+    #[inline]
+    pub fn value(&self) -> u32 {
+        self.flags & JVM_ACC_WRITTEN_FLAGS
+    }
+
+    is_flag!(public);
+    is_flag!(private);
+    is_flag!(protected);
+    is_flag!(static);
+    is_flag!(final);
+    is_flag!(synchronized);
+    is_flag!(super);
+    is_flag!(volatile);
+    is_flag!(transient);
+    is_flag!(native);
+    is_flag!(interface);
+    is_flag!(abstract);
+    is_flag!(synthetic);
+}
+
+impl Default for AccessFlags {
+    fn default() -> Self {
+        AccessFlags::new(0)
+    }
+}
+
+macro_rules! impl_from {
+    ($T:ident) => {
+        impl From<$T> for AccessFlags {
+            fn from(value: $T) -> Self {
+                AccessFlags::new(value as u32)
+            }
+        }
+    }
+}
+
+impl_from!(u8);
+impl_from!(u16);
+impl_from!(u32);
+impl_from!(u64);
+impl_from!(u128);
+impl_from!(i8);
+impl_from!(i16);
+impl_from!(i32);
+impl_from!(i64);
+impl_from!(i128);

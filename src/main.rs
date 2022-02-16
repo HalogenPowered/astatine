@@ -24,6 +24,7 @@ pub mod types;
 pub mod utils;
 pub mod code;
 pub mod objects;
+pub mod constants;
 
 fn main() {
     let mut buffer = String::new();

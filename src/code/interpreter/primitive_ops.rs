@@ -184,7 +184,7 @@ primitive_conversion!(long, int, i32);
 
 pub fn jvm_int_to_char(frame: &mut StackFrame) {
     let value = frame.pop_int_op();
-    frame.push_char_op(char::from_u32(value as u32).expect(&format!("{} is not a valid unicode code point!", value)));
+    frame.push_char_op(char::from_u32(value as u32).unwrap());
 }
 
 primitive_conversion!(double, float, f32);

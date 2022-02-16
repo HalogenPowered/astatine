@@ -16,19 +16,6 @@
 
 use std::sync::{Arc, RwLock};
 use crate::types::Class;
-use crate::utils::vm_types::ArrayType;
-
-/// Represents something that has been allocated on the heap by the VM, such as an object
-/// or an array.
-pub trait HeapObject {
-    fn offset(&self) -> usize;
-
-    fn len(&self) -> usize;
-
-    fn equals(&self, other: &Self) -> bool {
-        self as *const Self == other as *const Self
-    }
-}
 
 macro_rules! impl_getter_setter {
     ($field_name:ident) => {
@@ -41,8 +28,7 @@ macro_rules! impl_getter_setter {
         }
 
         pub fn get_char(&self, index: usize) -> char {
-            char::from_u32(self.get(index))
-                .expect(&format!("Invalid character at index {}!", index))
+            char::from_u32(self.get(index)).expect(&format!("Invalid character at index {}!", index))
         }
 
         pub fn get_short(&self, index: usize) -> i16 {
@@ -117,13 +103,17 @@ macro_rules! impl_getter_setter {
 
 macro_rules! impl_heap_object {
     ($T:ident) => {
-        impl HeapObject for $T {
-            fn offset(&self) -> usize {
+        impl $T {
+            pub fn offset(&self) -> usize {
                 self.offset
             }
 
-            fn len(&self) -> usize {
+            pub fn len(&self) -> usize {
                 self.length
+            }
+
+            pub fn equals(&self, other: &Self) -> bool {
+                self as *const Self == other as *const Self
             }
         }
     }
@@ -168,12 +158,7 @@ pub struct ReferenceArrayObject {
 }
 
 impl ReferenceArrayObject {
-    pub fn new(
-        offset: usize,
-        class: Arc<Class>,
-        element_class: Arc<Class>,
-        length: usize
-    ) -> Self {
+    pub fn new(offset: usize, class: Arc<Class>, element_class: Arc<Class>, length: usize) -> Self {
         ReferenceArrayObject {
             offset,
             class,
@@ -207,29 +192,21 @@ impl_heap_object!(ReferenceArrayObject);
 //  offer greater performance and lower memory footprint.
 pub struct TypeArrayObject {
     offset: usize,
-    array_type: ArrayType,
+    array_type: u8,
     length: usize,
     elements: RwLock<Vec<u32>>
 }
 
 impl TypeArrayObject {
-    pub fn new(offset: usize, array_type: ArrayType, length: usize) -> Self {
+    pub fn new(offset: usize, array_type: u8, length: usize) -> Self {
         TypeArrayObject { offset, array_type, length, elements: RwLock::new(Vec::with_capacity(length)) }
     }
 
-    pub fn array_type(&self) -> ArrayType {
+    pub fn array_type(&self) -> u8 {
         self.array_type
     }
 
     impl_getter_setter!(elements);
 }
 
-impl HeapObject for TypeArrayObject {
-    fn offset(&self) -> usize {
-        self.offset
-    }
-
-    fn len(&self) -> usize {
-        self.length
-    }
-}
+impl_heap_object!(TypeArrayObject);

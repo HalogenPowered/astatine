@@ -15,10 +15,10 @@
  */
 
 pub mod constants;
-pub mod vm_types;
-mod buffer;
+mod extras;
 mod lateinit;
 pub mod descriptors;
 
-pub use buffer::BufferExtras;
+pub use extras::BufferExtras;
+pub use extras::IdentEq;
 pub use lateinit::LateInit;
